@@ -32,7 +32,8 @@ const AI_COLORS = [
 const SOLO_FOOD_COUNT = 5;
 const SOLO_TICK_RATE = 130;
 const SOLO_BOOST_TICK_RATE = 40;
-const GREEN_FRUIT_INTERVAL = 5;
+const GREEN_BOOST_BASE_MS = 1000;
+const GREEN_BOOST_SCALE_MS = 190;
 const SOLO_CELL_SIZE = LOGICAL_SIZE / SOLO_ARENA_SIZE;
 const INVULN_DURATION = 2000;
 const VS_INVULN_DURATION = 3000;
@@ -46,6 +47,7 @@ const VS_POWERUP_DEFS = [
     { id: 'constrictor', name: 'Constrictor',  description: 'Encircle enemies with your body to crush them all and collect fruit inside', rarity: 'ultra', one_time: true },
     { id: 'snake_nest',  name: 'Snake Nest',   description: 'Lob an egg that hatches mini snakes to hunt enemies', rarity: 'rare' },
     { id: 'chronofield', name: 'Chronofield',  description: '+25% duration on all timed effects', rarity: 'uncommon' },
+    { id: 'multishot',   name: 'Hydra Fangs',  description: '+1 extra projectile to all weapons',  rarity: 'rare', max_rank: 3 },
 ];
 
 export class BattleRoyaleApp {
@@ -103,7 +105,7 @@ export class BattleRoyaleApp {
         this.vs_level_up_active = false;
         this.vs_level_up_choices = [];
         this.vs_level_up_index = 0;
-        this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, constrictor: 0, snake_nest: 0, chronofield: 0 };
+        this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, constrictor: 0, snake_nest: 0, chronofield: 0, multishot: 0 };
         this.vs_invuln_start = 0;
         this.poison_mortar = null;
         this.snake_nest = null;
@@ -365,7 +367,7 @@ export class BattleRoyaleApp {
         this.vs_level_up_active = false;
         this.vs_level_up_choices = [];
         this.vs_level_up_index = 0;
-        this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, constrictor: 0, snake_nest: 0, chronofield: 0 };
+        this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, constrictor: 0, snake_nest: 0, chronofield: 0, multishot: 0 };
         this.vs_invuln_start = 0;
 
         this.arena.spawn_food_count(this.snakes, VS_FOOD_COUNT);
@@ -394,7 +396,7 @@ export class BattleRoyaleApp {
                 this.vs_last_frame_time += pause_duration;
                 this.survivors_start_time += pause_duration;
                 if (this.vs_invuln_start > 0) this.vs_invuln_start += pause_duration;
-                if (this.enemy_manager) this.enemy_manager.game_start_time += pause_duration;
+                if (this.enemy_manager) this.enemy_manager.pause_adjust(pause_duration);
                 if (this.bullet_manager && this.bullet_manager.last_fire_time > 0) {
                     this.bullet_manager.last_fire_time += pause_duration;
                 }
@@ -586,7 +588,11 @@ export class BattleRoyaleApp {
                     this.vs_level++;
                     this.vs_xp_for_next = this.vs_level * 5;
                     this.vs_level_up_active = true;
-                    const pool = VS_POWERUP_DEFS.filter(p => !p.one_time || !this.vs_powerups[p.id]);
+                    const pool = VS_POWERUP_DEFS.filter(p => {
+                        if (p.one_time && this.vs_powerups[p.id]) return false;
+                        if (p.max_rank && this.vs_powerups[p.id] >= p.max_rank) return false;
+                        return true;
+                    });
                     const normal_pool = pool.filter(p => p.rarity !== 'ultra');
                     const ultra_pool = pool.filter(p => p.rarity === 'ultra');
                     const shuffled = [...normal_pool].sort(() => Math.random() - 0.5);
@@ -704,12 +710,13 @@ export class BattleRoyaleApp {
 
             if (this.green_food && snake.alive) {
                 if (snake.head.x === this.green_food.x && snake.head.y === this.green_food.y) {
+                    const boost_duration = GREEN_BOOST_BASE_MS + GREEN_BOOST_SCALE_MS * this.normal_fruits_eaten * this.normal_fruits_eaten;
                     this.green_food = null;
                     this.normal_fruits_eaten = 0;
                     snake.grow_pending += 2;
                     this.solo_boosted = true;
                     this.invulnerable = false;
-                    this.solo_autopilot.activate();
+                    this.solo_autopilot.activate(boost_duration);
                 }
             }
 
@@ -731,8 +738,7 @@ export class BattleRoyaleApp {
                 this.solo_score = snake.length - 3;
             }
 
-            if (!this.green_food && !this.solo_autopilot.active && !this.invulnerable &&
-                this.normal_fruits_eaten >= GREEN_FRUIT_INTERVAL) {
+            if (!this.green_food && !this.solo_autopilot.active && !this.invulnerable) {
                 this.place_green_food();
             }
 
@@ -972,15 +978,12 @@ export class BattleRoyaleApp {
             ctx.fillText(`Length: ${this.player_snake.length}`, size - 12, 12);
         }
 
-        if (!this.solo_autopilot.active && !this.invulnerable && !this.green_food) {
-            const progress = this.normal_fruits_eaten;
-            const needed = GREEN_FRUIT_INTERVAL;
-            if (progress > 0) {
-                ctx.fillStyle = '#0f0';
-                ctx.font = '11px monospace';
-                ctx.textAlign = 'right';
-                ctx.fillText(`Green: ${progress}/${needed}`, size - 12, 30);
-            }
+        if (!this.solo_autopilot.active && !this.invulnerable) {
+            const boost_secs = ((GREEN_BOOST_BASE_MS + GREEN_BOOST_SCALE_MS * this.normal_fruits_eaten * this.normal_fruits_eaten) / 1000).toFixed(1);
+            ctx.fillStyle = '#0f0';
+            ctx.font = '11px monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText(`Boost: ${boost_secs}s`, size - 12, 30);
         }
 
         if (this.solo_autopilot.active) {
@@ -1112,7 +1115,7 @@ export class BattleRoyaleApp {
     render_survivors_hud(ctx, w, h) {
         const kills = this.enemy_manager ? this.enemy_manager.total_kills : 0;
         const hp = this.enemy_manager ? this.enemy_manager.player_hp : 0;
-        const max_hp = 3;
+        const max_hp = 5;
         const elapsed = Math.floor((performance.now() - this.survivors_start_time) / 1000);
         const mins = Math.floor(elapsed / 60);
         const secs = elapsed % 60;
@@ -1237,6 +1240,9 @@ export class BattleRoyaleApp {
                 const next_pct = (lvl + 1) * 25;
                 return `Duration bonus: +${cur_pct}% → +${next_pct}%`;
             }
+            case 'multishot': {
+                return `Extra projectiles on all weapons: +${lvl} → +${lvl + 1} (max +3)`;
+            }
             default: return '';
         }
     }
@@ -1252,15 +1258,19 @@ export class BattleRoyaleApp {
             this.bullet_manager.fire_cooldown_mult = Math.pow(0.85, this.vs_powerups.atk_speed);
             this.bullet_manager.crit_chance = this.vs_powerups.crit * 0.10;
             this.bullet_manager.bonus_dmg = this.vs_powerups.gorger;
+            this.bullet_manager.extra_projectiles = this.vs_powerups.multishot;
         }
         const dur_mult = 1 + this.vs_powerups.chronofield * 0.25;
+        const extra = this.vs_powerups.multishot;
         if (this.poison_mortar) {
             this.poison_mortar.level = this.vs_powerups.plague;
             this.poison_mortar.duration_mult = dur_mult;
+            this.poison_mortar.extra_projectiles = extra;
         }
         if (this.snake_nest) {
             this.snake_nest.level = this.vs_powerups.snake_nest;
             this.snake_nest.duration_mult = dur_mult;
+            this.snake_nest.extra_projectiles = extra;
         }
     }
 

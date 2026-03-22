@@ -17,6 +17,7 @@ export class SnakeNest {
         this.last_fire = 0;
         this.level = 0;
         this.duration_mult = 1;
+        this.extra_projectiles = 0;
     }
 
     get_cooldown() {
@@ -86,6 +87,21 @@ export class SnakeNest {
                     trail: [],
                     sparks: [],
                 });
+                // Extra eggs from Hydra Fangs — offset around the main target
+                for (let ei = 0; ei < this.extra_projectiles; ei++) {
+                    const angle = (ei / this.extra_projectiles) * Math.PI * 2 + Math.random() * 0.5;
+                    const spread = 2.5;
+                    this.projectiles.push({
+                        start_x: hx,
+                        start_y: hy,
+                        target_x: best.x + Math.cos(angle) * spread,
+                        target_y: best.y + Math.sin(angle) * spread,
+                        elapsed: 0,
+                        duration: NEST_FLIGHT_DURATION + ei * 0.1,
+                        trail: [],
+                        sparks: [],
+                    });
+                }
                 this.last_fire = now;
             }
         }

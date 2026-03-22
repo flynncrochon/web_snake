@@ -16,28 +16,31 @@ export class SnakeRenderer {
             positions.push({ x: px, y: py });
         }
 
-        const p = 2;
-        for (let i = 0; i < snake.length - 1; i++) {
+        for (let i = 0; i < positions.length - 1; i++) {
             const a = positions[i];
             const b = positions[i + 1];
-            let cx = (snake[i].prev_x + 0.5) * cell_size;
-            let cy = (snake[i].prev_y + 0.5) * cell_size;
-            if (use_snap) {
-                cx = Math.round(cx + cam_offset_x) - cam_offset_x;
-                cy = Math.round(cy + cam_offset_y) - cam_offset_y;
+
+            if (Math.abs(a.x - b.x) < 1) {
+                const cx = (a.x + b.x) / 2;
+                ctx.fillRect(cx - half, Math.min(a.y, b.y) - half, seg_size, Math.abs(a.y - b.y) + seg_size);
+            } else if (Math.abs(a.y - b.y) < 1) {
+                const cy = (a.y + b.y) / 2;
+                ctx.fillRect(Math.min(a.x, b.x) - half, cy - half, Math.abs(a.x - b.x) + seg_size, seg_size);
+            } else {
+                // Corner: compute the grid corner where the turn happens
+                let cx = (snake[i].prev_x + 0.5) * cell_size;
+                let cy = (snake[i].prev_y + 0.5) * cell_size;
+                if (use_snap) {
+                    cx = Math.round(cx + cam_offset_x) - cam_offset_x;
+                    cy = Math.round(cy + cam_offset_y) - cam_offset_y;
+                }
+                // Connect a to corner
+                ctx.fillRect(Math.min(a.x, cx) - half, Math.min(a.y, cy) - half,
+                    Math.abs(a.x - cx) + seg_size, Math.abs(a.y - cy) + seg_size);
+                // Connect b to corner
+                ctx.fillRect(Math.min(b.x, cx) - half, Math.min(b.y, cy) - half,
+                    Math.abs(b.x - cx) + seg_size, Math.abs(b.y - cy) + seg_size);
             }
-
-            const x1 = Math.min(a.x, cx) - half - p;
-            const y1 = Math.min(a.y, cy) - half - p;
-            const w1 = Math.max(a.x, cx) - Math.min(a.x, cx) + seg_size + p * 2;
-            const h1 = Math.max(a.y, cy) - Math.min(a.y, cy) + seg_size + p * 2;
-            ctx.fillRect(x1, y1, w1, h1);
-
-            const x2 = Math.min(b.x, cx) - half - p;
-            const y2 = Math.min(b.y, cy) - half - p;
-            const w2 = Math.max(b.x, cx) - Math.min(b.x, cx) + seg_size + p * 2;
-            const h2 = Math.max(b.y, cy) - Math.min(b.y, cy) + seg_size + p * 2;
-            ctx.fillRect(x2, y2, w2, h2);
         }
 
         for (const pos of positions) {

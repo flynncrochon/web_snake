@@ -1,19 +1,20 @@
 import { SOLO_ARENA_SIZE } from '../constants.js';
 
-const AUTOPILOT_DURATION = 8000;
+const DEFAULT_AUTOPILOT_DURATION = 8000;
 
 export class SoloAutopilot {
     constructor(arena_size = SOLO_ARENA_SIZE) {
         this.active = false;
         this.start_time = 0;
-        this.duration = AUTOPILOT_DURATION;
+        this.duration = DEFAULT_AUTOPILOT_DURATION;
         this.sz = arena_size;
         this.cycle = null;
         this.cycle_index = null;
     }
 
-    activate() {
+    activate(duration = DEFAULT_AUTOPILOT_DURATION) {
         this.active = true;
+        this.duration = duration;
         this.start_time = performance.now();
         if (!this.cycle) this.build_cycle();
     }

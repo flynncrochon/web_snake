@@ -14,6 +14,7 @@ export class BulletManager {
         this.fire_cooldown_mult = 1.0;
         this.crit_chance = 0;
         this.bonus_dmg = 0;
+        this.extra_projectiles = 0;
     }
 
     update(dt, snake, enemy_manager, arena, particles, cell_size, damage_numbers) {
@@ -59,6 +60,13 @@ export class BulletManager {
                 const py = ndx * FANG_SPREAD;
                 this.bullets.push(new Bullet(hx + px, hy + py, ndx, ndy, nearest));
                 this.bullets.push(new Bullet(hx - px, hy - py, ndx, ndy, nearest));
+                // Extra projectiles from Hydra Fangs — spread evenly between the two base fangs
+                for (let i = 0; i < this.extra_projectiles; i++) {
+                    const t = (i + 1) / (this.extra_projectiles + 1);
+                    const ox = px * (1 - 2 * t); // interpolate from +px to -px
+                    const oy = py * (1 - 2 * t);
+                    this.bullets.push(new Bullet(hx + ox, hy + oy, ndx, ndy, nearest));
+                }
                 this.last_fire_time = now;
             }
         }
