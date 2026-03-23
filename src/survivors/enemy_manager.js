@@ -31,7 +31,7 @@ export class EnemyManager {
             spawn_interval: Math.max(300, 2000 - fast * 1700),
             spawn_count: Math.floor(2 + fast * 13),
             speed: 1.5 + fast * 6,
-            hp: (3 + Math.floor(fast * 20)) * 100,
+            hp: (1 + Math.floor(fast * 22)) * 100,
             length: Math.min(9, 1 + Math.floor(t * 8)),
         };
     }

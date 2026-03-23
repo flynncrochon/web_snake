@@ -152,6 +152,7 @@ export class BattleRoyaleApp {
         this.vs_level_up_index = 0;
         this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0, venom_nova: 0, blast_radius: 0, weapon_range: 0, sidewinder: 0, ricochet: 0, cobra_pit: 0, tongue_lash: 0, miasma: 0, hydra_brood: 0, serpent_gatling: 0, consumption_beam: 0, singularity_mortar: 0, shatter_fang: 0, ancient_brood_pit: 0, serpents_reckoning: 0 };
         this.vs_invuln_start = 0;
+        this.vs_self_collision_freeze = 0;
         this.poison_mortar = null;
         this.snake_nest = null;
         this.fang_barrage = null;
@@ -548,6 +549,7 @@ export class BattleRoyaleApp {
         this.vs_level_up_index = 0;
         this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0, venom_nova: 0, blast_radius: 0, weapon_range: 0, sidewinder: 0, ricochet: 0, cobra_pit: 0, tongue_lash: 0, miasma: 0, hydra_brood: 0, serpent_gatling: 0, consumption_beam: 0, singularity_mortar: 0, shatter_fang: 0, ancient_brood_pit: 0, serpents_reckoning: 0 };
         this.vs_invuln_start = 0;
+        this.vs_self_collision_freeze = 0;
         this.vs_resume_countdown_start = 0;
 
         this.enclosed_region = null;
@@ -608,6 +610,9 @@ export class BattleRoyaleApp {
                 }
                 if (this.grey_snake) {
                     this.grey_snake.pause_adjust(pause_duration);
+                }
+                if (this.vs_self_collision_freeze > 0) {
+                    this.vs_self_collision_freeze += pause_duration;
                 }
                 if (this.vs_resume_countdown_start > 0) {
                     this.vs_resume_countdown_start += pause_duration;
@@ -825,19 +830,42 @@ export class BattleRoyaleApp {
                 }
             }
 
-            if (vs_immune) {
-                const next_x = snake.head.x + snake.direction.dx;
-                const next_y = snake.head.y + snake.direction.dy;
-                const growing = snake.grow_pending > 0;
-                const end = growing ? snake.segments.length : snake.segments.length - 1;
-                let hits_own_body = false;
-                for (let i = 1; i < end; i++) {
-                    if (snake.segments[i].x === next_x && snake.segments[i].y === next_y) {
-                        hits_own_body = true;
-                        break;
-                    }
+            // Check if next move would collide with own body or grey snake
+            const next_x = snake.head.x + snake.direction.dx;
+            const next_y = snake.head.y + snake.direction.dy;
+            const growing = snake.grow_pending > 0;
+            const end = growing ? snake.segments.length : snake.segments.length - 1;
+            let hits_own_body = false;
+            for (let i = 1; i < end; i++) {
+                if (snake.segments[i].x === next_x && snake.segments[i].y === next_y) {
+                    hits_own_body = true;
+                    break;
                 }
-                if (hits_own_body) {
+            }
+            const hits_grey = this.grey_snake && this.grey_snake.check_collision(next_x, next_y);
+            const hits_lethal = hits_own_body || hits_grey;
+
+            if (vs_immune && hits_own_body) {
+                for (const seg of snake.segments) {
+                    seg.prev_x = seg.x;
+                    seg.prev_y = seg.y;
+                }
+                this.last_tick_time = now;
+                this.particles.update();
+                if (now - this.last_food_spawn >= 3000) {
+                    this.arena.spawn_food_count(this.snakes, VS_FOOD_COUNT);
+                    this.last_food_spawn = now;
+                }
+                return;
+            }
+
+            // Collision grace period: freeze for 1 second before dying
+            if (hits_lethal && !(vs_immune && hits_own_body)) {
+                if (this.vs_self_collision_freeze === 0) {
+                    this.vs_self_collision_freeze = now;
+                }
+                if (now - this.vs_self_collision_freeze < 1000) {
+                    // Still in grace period — freeze movement but keep game running
                     for (const seg of snake.segments) {
                         seg.prev_x = seg.x;
                         seg.prev_y = seg.y;
@@ -850,11 +878,31 @@ export class BattleRoyaleApp {
                     }
                     return;
                 }
+                // Grace period expired — proceed to death
+                this.vs_self_collision_freeze = 0;
+            } else if (this.vs_self_collision_freeze > 0) {
+                // Player changed direction and avoided collision — cancel freeze
+                this.vs_self_collision_freeze = 0;
             }
 
             const grow_before = snake.segments.length + snake.grow_pending;
 
             const died = this.snake_controller.tick_all(this.snakes, this.arena);
+
+            // Self-collision death via tick_all
+            if (!snake.alive) {
+                this.survivors_final_elapsed = Math.floor((performance.now() - this.survivors_start_time) / 1000);
+                const cx = (snake.head.x + 0.5) * cell;
+                const cy = (snake.head.y + 0.5) * cell;
+                this.particles.emit(cx, cy, 25, '#f00', 5);
+                const kills = this.enemy_manager.total_kills;
+                if (kills > this.survivors_high_score) {
+                    this.survivors_high_score = kills;
+                    localStorage.setItem('snake_vs_high', String(kills));
+                }
+                this.fsm.transition('DEATH');
+                return;
+            }
 
             if (snake.alive) {
                 this.check_constrictor_enclosure(snake);
@@ -1628,6 +1676,19 @@ export class BattleRoyaleApp {
 
         if (this.vs_evo_menu_active) {
             this.render_evolution_menu(ctx, w, h);
+        }
+
+        // Self-collision warning overlay
+        if (this.vs_self_collision_freeze > 0) {
+            const elapsed = performance.now() - this.vs_self_collision_freeze;
+            const flash = Math.sin(elapsed * 0.015) > 0;
+            if (flash) {
+                ctx.save();
+                ctx.globalAlpha = 0.25;
+                ctx.fillStyle = '#ff0000';
+                ctx.fillRect(0, 0, w, h);
+                ctx.restore();
+            }
         }
 
         // Resume countdown overlay
