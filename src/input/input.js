@@ -48,6 +48,14 @@ export class Input {
         if (e.key >= '1' && e.key <= '9') {
             this.on_action('number', parseInt(e.key, 10));
         }
+        if (e.key === 'F1') {
+            e.preventDefault();
+            this.on_action('debug_menu');
+        }
+        if (e.key === 'F2') {
+            e.preventDefault();
+            this.on_action('evolution_menu');
+        }
     }
 
     queue_direction(dir) {

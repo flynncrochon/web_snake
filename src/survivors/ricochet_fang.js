@@ -1,12 +1,15 @@
-const FANG_RANGE = 9;
-const FANG_RANGE_SQ = FANG_RANGE * FANG_RANGE;
-const BASE_COOLDOWN = 2500;
-const FANG_SPEED = 18;
-const FANG_LIFETIME = 0.6;
-const FANG_TURN_SPEED = 10; // radians/sec — aggressive homing
-const FANG_RADIUS = 0.18;
+const RICOCHET_RANGE = 10;
+const RICOCHET_RANGE_SQ = RICOCHET_RANGE * RICOCHET_RANGE;
+const BASE_COOLDOWN = 3500;
+const RICOCHET_SPEED = 20;
+const RICOCHET_LIFETIME = 0.8;
+const RICOCHET_TURN_SPEED = 14;
+const RICOCHET_RADIUS = 0.2;
+const BASE_DAMAGE = 200;
+const BASE_BOUNCE_RADIUS = 5;        // cells — how far it can jump to next target
+const BASE_BOUNCES = 3;
 
-export class FangBarrage {
+export class RicochetFang {
     constructor() {
         this.fangs = [];
         this.last_fire = 0;
@@ -14,20 +17,30 @@ export class FangBarrage {
         this.extra_projectiles = 0;
         this.crit_chance = 0;
         this.gorger_dmg_mult = 1;
+        this.duration_mult = 1;       // chronofield — extends lifetime
+        this.radius_mult = 1;         // toxic expanse — extends bounce search radius
         this.range_mult = 1;
         this.fire_cooldown_mult = 1;
     }
 
     get_cooldown() {
-        return Math.max(1000, BASE_COOLDOWN - (this.level - 1) * 250) * this.fire_cooldown_mult;
+        return Math.max(1500, BASE_COOLDOWN - (this.level - 1) * 300) * this.fire_cooldown_mult;
     }
 
     get_fang_count() {
-        return this.level + this.extra_projectiles;
+        return 1 + this.extra_projectiles;
+    }
+
+    get_max_bounces() {
+        return BASE_BOUNCES + Math.floor(this.level / 2);   // 3 → 7 bounces
     }
 
     get_damage() {
-        return (1 + Math.floor(this.level / 3)) * 150;
+        return (1 + Math.floor(this.level / 3)) * BASE_DAMAGE;
+    }
+
+    get_bounce_radius() {
+        return BASE_BOUNCE_RADIUS * this.radius_mult;
     }
 
     update(dt, snake, enemy_manager, arena, particles, cell_size, damage_numbers) {
@@ -38,15 +51,13 @@ export class FangBarrage {
         const hy = head.y + 0.5;
         const now = performance.now();
 
-        // --- Fire burst at nearby enemies ---
+        // --- Fire at nearest enemy ---
         if (now - this.last_fire >= this.get_cooldown()) {
-            // Gather enemies in range
-            const fang_range = FANG_RANGE * this.range_mult;
-            const candidates = enemy_manager.query_radius_array(hx, hy, fang_range);
+            const ric_range = RICOCHET_RANGE * this.range_mult;
+            const candidates = enemy_manager.query_radius_array(hx, hy, ric_range);
 
             if (candidates.length > 0) {
                 const count = this.get_fang_count();
-                // Sort by distance so we prioritize closest enemies
                 candidates.sort((a, b) => {
                     const da = (a.x - hx) ** 2 + (a.y - hy) ** 2;
                     const db = (b.x - hx) ** 2 + (b.y - hy) ** 2;
@@ -60,9 +71,9 @@ export class FangBarrage {
                     const len = Math.sqrt(dx * dx + dy * dy);
                     const ndx = len > 0.01 ? dx / len : 0;
                     const ndy = len > 0.01 ? dy / len : 1;
-                    // Slight angular offset so multiple fangs spread out
+
                     const offset_angle = count > 1
-                        ? (i / (count - 1) - 0.5) * 0.5
+                        ? (i / (count - 1) - 0.5) * 0.6
                         : 0;
                     const cos_o = Math.cos(offset_angle);
                     const sin_o = Math.sin(offset_angle);
@@ -75,10 +86,13 @@ export class FangBarrage {
                         dx: fdx,
                         dy: fdy,
                         target: target,
-                        life: FANG_LIFETIME,
+                        life: RICOCHET_LIFETIME * this.duration_mult,
                         alive: true,
                         trail: [],
                         wobble: Math.random() * Math.PI * 2,
+                        bounce_count: 0,
+                        max_bounces: this.get_max_bounces(),
+                        hit_ids: new Set(),
                     });
                 }
                 this.last_fire = now;
@@ -88,6 +102,12 @@ export class FangBarrage {
         // --- Update fangs ---
         for (const f of this.fangs) {
             if (!f.alive) continue;
+
+            // Re-target if current target is dead
+            if (!f.target || !f.target.alive) {
+                const br = this.get_bounce_radius();
+                f.target = enemy_manager.query_nearest(f.x, f.y, br, f.hit_ids);
+            }
 
             // Home toward target
             if (f.target && f.target.alive) {
@@ -100,7 +120,7 @@ export class FangBarrage {
                     let diff = target_angle - cur_angle;
                     while (diff > Math.PI) diff -= Math.PI * 2;
                     while (diff < -Math.PI) diff += Math.PI * 2;
-                    const max_turn = FANG_TURN_SPEED * dt;
+                    const max_turn = RICOCHET_TURN_SPEED * dt;
                     const turn = Math.max(-max_turn, Math.min(max_turn, diff));
                     const new_angle = cur_angle + turn;
                     f.dx = Math.cos(new_angle);
@@ -109,41 +129,48 @@ export class FangBarrage {
             }
 
             f.trail.push({ x: f.x, y: f.y });
-            if (f.trail.length > 8) f.trail.shift();
+            if (f.trail.length > 10) f.trail.shift();
 
-            f.x += f.dx * FANG_SPEED * dt;
-            f.y += f.dy * FANG_SPEED * dt;
+            f.x += f.dx * RICOCHET_SPEED * dt;
+            f.y += f.dy * RICOCHET_SPEED * dt;
             f.life -= dt;
             if (f.life <= 0) f.alive = false;
 
-            // Out of bounds
             if (f.x < 0 || f.x > arena.size || f.y < 0 || f.y > arena.size) {
                 f.alive = false;
             }
         }
 
-        // --- Collision with enemies ---
+        // --- Collision — bouncing ---
         const dmg = this.get_damage();
         for (const f of this.fangs) {
             if (!f.alive) continue;
-            const hit_r = FANG_RADIUS + 0.55;
+            const hit_r = RICOCHET_RADIUS + 0.55;
             enemy_manager.query_radius(f.x, f.y, hit_r, (e) => {
-                if (!f.alive) return;
+                if (!f.alive || f.hit_ids.has(e)) return;
                 const dx = f.x - e.x;
                 const dy = f.y - e.y;
-                if (Math.sqrt(dx * dx + dy * dy) < FANG_RADIUS + e.radius) {
-                    f.alive = false;
+                if (Math.sqrt(dx * dx + dy * dy) < RICOCHET_RADIUS + e.radius) {
+                    f.hit_ids.add(e);
+                    f.bounce_count++;
+
+                    // Damage ramps UP per bounce: 100%, 120%, 140%, ...
+                    const bounce_mult = 1 + (f.bounce_count - 1) * 0.2;
                     const is_crit = this.crit_chance > 0 && Math.random() < this.crit_chance;
-                    const final_dmg = Math.round((is_crit ? dmg * 2 : dmg) * this.gorger_dmg_mult);
+                    const final_dmg = Math.round(dmg * bounce_mult * (is_crit ? 2 : 1) * this.gorger_dmg_mult);
                     const dead = e.take_damage(final_dmg);
+
                     if (damage_numbers) {
                         damage_numbers.emit(e.x, e.y - e.radius, final_dmg, is_crit);
                     }
                     if (particles) {
                         const sx = e.x * cell_size;
                         const sy = e.y * cell_size;
-                        particles.emit(sx, sy, 5, '#ff4466', 3);
-                        particles.emit(sx, sy, 3, '#ff8888', 2);
+                        particles.emit(sx, sy, 6, '#66ccff', 3);
+                        particles.emit(sx, sy, 4, '#aaeeff', 2);
+                        if (is_crit) {
+                            particles.emit(sx, sy, 8, '#ffcc44', 4);
+                        }
                     }
                     if (dead) {
                         const fx = Math.floor(e.x);
@@ -157,8 +184,18 @@ export class FangBarrage {
                             particles.emit(e.x * cell_size, e.y * cell_size, 8, e.color, 3);
                         }
                     } else {
-                        e.x += f.dx * 0.3;
-                        e.y += f.dy * 0.3;
+                        e.x += f.dx * 0.25;
+                        e.y += f.dy * 0.25;
+                    }
+
+                    if (f.bounce_count >= f.max_bounces) {
+                        f.alive = false;
+                    } else {
+                        // Find next bounce target within bounce radius
+                        const br = this.get_bounce_radius();
+                        f.target = enemy_manager.query_nearest(f.x, f.y, br, f.hit_ids);
+                        // Refresh lifetime on bounce so it has time to reach next target
+                        f.life = Math.min(f.life + 0.3 * this.duration_mult, RICOCHET_LIFETIME * this.duration_mult);
                     }
                 }
             });
@@ -176,7 +213,7 @@ export class FangBarrage {
             const py = f.y * cell_size;
             const angle = Math.atan2(f.dy, f.dx);
 
-            // --- Venom trail ---
+            // --- Icy-blue trail with bounce intensity ---
             if (f.trail.length >= 2) {
                 ctx.lineCap = 'round';
                 for (let i = 1; i < f.trail.length; i++) {
@@ -185,16 +222,22 @@ export class FangBarrage {
                     const y0 = f.trail[i - 1].y * cell_size;
                     const x1 = f.trail[i].x * cell_size;
                     const y1 = f.trail[i].y * cell_size;
-                    // Outer green venom glow
-                    ctx.strokeStyle = `rgba(80, 255, 100, ${frac * 0.35})`;
-                    ctx.lineWidth = frac * cell_size * 0.15;
+
+                    // Outer glow — gets brighter with more bounces
+                    const intensity = Math.min(1, 0.5 + f.bounce_count * 0.1);
+                    const r = Math.round(60 + 40 * intensity);
+                    const g = Math.round(180 + 60 * frac);
+                    const b = 255;
+                    ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${frac * 0.45 * intensity})`;
+                    ctx.lineWidth = frac * cell_size * 0.14;
                     ctx.beginPath();
                     ctx.moveTo(x0, y0);
                     ctx.lineTo(x1, y1);
                     ctx.stroke();
+
                     // Bright core
-                    ctx.strokeStyle = `rgba(200, 255, 210, ${frac * 0.25})`;
-                    ctx.lineWidth = frac * cell_size * 0.05;
+                    ctx.strokeStyle = `rgba(220, 240, 255, ${frac * 0.3})`;
+                    ctx.lineWidth = frac * cell_size * 0.04;
                     ctx.beginPath();
                     ctx.moveTo(x0, y0);
                     ctx.lineTo(x1, y1);
@@ -202,76 +245,59 @@ export class FangBarrage {
                 }
             }
 
-            // --- Two curved fangs ---
-            const fl = cell_size * 0.55;     // fang length
-            const gap = cell_size * 0.07;    // gap from center
-            const spread = cell_size * 0.28; // how far each fang curves outward
+            // --- Diamond-shaped fang projectile ---
+            const fl = cell_size * 0.5;
+            const fw = cell_size * 0.2;
 
             ctx.save();
             ctx.translate(px, py);
             ctx.rotate(angle);
 
-            ctx.shadowColor = 'rgba(80, 255, 100, 0.5)';
-            ctx.shadowBlur = cell_size * 0.35;
+            // Icy glow intensifies with bounces
+            const glow_strength = 0.4 + Math.min(f.bounce_count * 0.1, 0.5);
+            ctx.shadowColor = `rgba(100, 200, 255, ${glow_strength})`;
+            ctx.shadowBlur = cell_size * (0.3 + f.bounce_count * 0.05);
 
-            // --- Upper fang ---
-            ctx.fillStyle = '#f0e8e0';
+            // Diamond body
+            ctx.fillStyle = '#d8eeff';
             ctx.beginPath();
-            ctx.moveTo(fl, -gap);                                                    // sharp tip
-            ctx.quadraticCurveTo(fl * 0.1, -spread * 1.5, -fl * 0.4, -spread);      // outer curve back
-            ctx.lineTo(-fl * 0.3, -gap * 2);                                        // inner base
-            ctx.quadraticCurveTo(fl * 0.2, -gap * 1.2, fl, -gap);                   // inner curve to tip
+            ctx.moveTo(fl, 0);            // sharp tip
+            ctx.lineTo(0, -fw);           // top edge
+            ctx.lineTo(-fl * 0.4, 0);     // back notch
+            ctx.lineTo(0, fw);            // bottom edge
             ctx.closePath();
             ctx.fill();
 
-            // Upper fang highlight
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            // Inner highlight
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
             ctx.beginPath();
-            ctx.moveTo(fl * 0.8, -gap * 1.1);
-            ctx.quadraticCurveTo(fl * 0.2, -spread * 0.6, -fl * 0.15, -spread * 0.5);
-            ctx.quadraticCurveTo(fl * 0.15, -gap * 1.5, fl * 0.8, -gap * 1.1);
-            ctx.closePath();
-            ctx.fill();
-
-            // --- Lower fang (mirrored) ---
-            ctx.fillStyle = '#f0e8e0';
-            ctx.beginPath();
-            ctx.moveTo(fl, gap);
-            ctx.quadraticCurveTo(fl * 0.1, spread * 1.5, -fl * 0.4, spread);
-            ctx.lineTo(-fl * 0.3, gap * 2);
-            ctx.quadraticCurveTo(fl * 0.2, gap * 1.2, fl, gap);
-            ctx.closePath();
-            ctx.fill();
-
-            // Lower fang highlight
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-            ctx.beginPath();
-            ctx.moveTo(fl * 0.8, gap * 1.1);
-            ctx.quadraticCurveTo(fl * 0.2, spread * 0.6, -fl * 0.15, spread * 0.5);
-            ctx.quadraticCurveTo(fl * 0.15, gap * 1.5, fl * 0.8, gap * 1.1);
+            ctx.moveTo(fl * 0.8, 0);
+            ctx.lineTo(fl * 0.1, -fw * 0.5);
+            ctx.lineTo(-fl * 0.15, 0);
+            ctx.lineTo(fl * 0.1, fw * 0.5);
             ctx.closePath();
             ctx.fill();
 
             ctx.shadowBlur = 0;
 
-            // --- Venom at tips ---
-            const pulse = 0.5 + Math.sin(f.wobble + now * 0.012) * 0.5;
-            ctx.fillStyle = `rgba(80, 238, 68, ${0.5 + pulse * 0.5})`;
+            // Icy sparkle at tip
+            const pulse = 0.5 + Math.sin(f.wobble + now * 0.014) * 0.5;
+            ctx.fillStyle = `rgba(150, 220, 255, ${0.6 + pulse * 0.4})`;
             ctx.beginPath();
-            ctx.arc(fl + fl * 0.04, -gap, fl * 0.06, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(fl + fl * 0.04, gap, fl * 0.06, 0, Math.PI * 2);
+            ctx.arc(fl + fl * 0.05, 0, fl * 0.08, 0, Math.PI * 2);
             ctx.fill();
 
-            // Venom drips
-            ctx.fillStyle = `rgba(80, 255, 100, ${0.35 * pulse})`;
-            ctx.beginPath();
-            ctx.arc(fl + fl * 0.14, -gap * 0.6, fl * 0.045 * pulse, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(fl + fl * 0.14, gap * 0.6, fl * 0.045 * pulse, 0, Math.PI * 2);
-            ctx.fill();
+            // Bounce count sparks (small orbiting dots)
+            for (let b = 0; b < Math.min(f.bounce_count, 6); b++) {
+                const orbit_angle = (now * 0.008 + b * Math.PI * 2 / Math.max(f.bounce_count, 1));
+                const orbit_r = fl * 0.35;
+                const ox = Math.cos(orbit_angle) * orbit_r;
+                const oy = Math.sin(orbit_angle) * orbit_r;
+                ctx.fillStyle = `rgba(100, 200, 255, ${0.5 + pulse * 0.3})`;
+                ctx.beginPath();
+                ctx.arc(ox, oy, fl * 0.04, 0, Math.PI * 2);
+                ctx.fill();
+            }
 
             ctx.restore();
         }

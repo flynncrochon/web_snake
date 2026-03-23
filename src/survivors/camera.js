@@ -14,13 +14,16 @@ export class Camera {
         this.half_view_y = view_height / 2;
     }
 
-    update(target_grid_x, target_grid_y) {
-        this.x = target_grid_x * this.cell_size;
-        this.y = target_grid_y * this.cell_size;
+    update(target_grid_x, target_grid_y, dt) {
+        let tx = target_grid_x * this.cell_size;
+        let ty = target_grid_y * this.cell_size;
 
         const max_world = this.arena_size * this.cell_size;
-        this.x = Math.max(this.half_view_x, Math.min(max_world - this.half_view_x, this.x));
-        this.y = Math.max(this.half_view_y, Math.min(max_world - this.half_view_y, this.y));
+        tx = Math.max(this.half_view_x, Math.min(max_world - this.half_view_x, tx));
+        ty = Math.max(this.half_view_y, Math.min(max_world - this.half_view_y, ty));
+
+        this.x = tx;
+        this.y = ty;
     }
 
     snap_to(grid_x, grid_y) {
@@ -32,7 +35,7 @@ export class Camera {
     }
 
     apply_transform(ctx) {
-        ctx.translate(this.half_view_x - this.x, this.half_view_y - this.y);
+        ctx.translate(Math.round(this.half_view_x - this.x), Math.round(this.half_view_y - this.y));
     }
 
     is_visible(grid_x, grid_y, padding = 2) {

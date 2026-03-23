@@ -22,6 +22,21 @@ import { DamageNumberSystem } from '../survivors/damage_numbers.js';
 import { PoisonMortar } from '../survivors/poison_mortar.js';
 import { SnakeNest } from '../survivors/snake_nest.js';
 import { FangBarrage } from '../survivors/fang_barrage.js';
+import { VenomNova } from '../survivors/venom_nova.js';
+import { Miasma } from '../survivors/miasma.js';
+import { HydraBrood } from '../survivors/hydra_brood.js';
+import { SerpentGatling } from '../survivors/serpent_gatling.js';
+import { SidewinderBeam } from '../survivors/sidewinder_beam.js';
+import { ConsumptionBeam } from '../survivors/consumption_beam.js';
+import { SingularityMortar } from '../survivors/singularity_mortar.js';
+import { RicochetFang } from '../survivors/ricochet_fang.js';
+import { ShatterFang } from '../survivors/shatter_fang.js';
+import { CobraPit } from '../survivors/cobra_pit.js';
+import { AncientBroodPit } from '../survivors/ancient_brood_pit.js';
+import { TongueLash } from '../survivors/tongue_lash.js';
+import { SerpentsReckoning } from '../survivors/serpents_reckoning.js';
+import { ChestLottery } from '../survivors/chest_lottery.js';
+import { GreySnakeManager } from '../survivors/grey_snake.js';
 import { get_powerup_icon } from '../rendering/powerup_icons.js';
 
 const AI_COLORS = [
@@ -39,17 +54,46 @@ const INVULN_DURATION = 2000;
 const VS_INVULN_DURATION = 3000;
 
 const VS_POWERUP_DEFS = [
-    { id: 'magnet',      name: 'Graviton',    description: '+1 fruit pickup radius',       rarity: 'common' },
-    { id: 'atk_speed',   name: 'Rapid Fire',   description: '+15% attack speed',            rarity: 'uncommon' },
-    { id: 'crit',        name: 'Dead Eye',     description: '+10% crit chance (2\u00d7 dmg)', rarity: 'rare' },
-    { id: 'gorger',      name: 'Ravenous Maw', description: 'Insatiable hunger — fangs hit harder and fruits feed more', rarity: 'legendary' },
-    { id: 'plague',      name: 'Plague Mortar', description: 'Lob toxic bombs that leave poison zones', rarity: 'rare' },
+    { id: 'magnet',      name: 'Graviton',    description: '+1 fruit pickup radius', max_rank: 8, category: 'effect' },
+    { id: 'atk_speed',   name: 'Rapid Fire',   description: '+15% attack speed', max_rank: 8, category: 'effect' },
+    { id: 'crit',        name: 'Dead Eye',     description: '+12.5% crit chance (2× dmg)', max_rank: 8, category: 'effect' },
+    { id: 'gorger',      name: 'Ravenous Maw', description: 'Insatiable hunger — more growth, more XP, direct weapons hit harder', max_rank: 8, category: 'effect' },
+    { id: 'plague',      name: 'Plague Mortar', description: 'Lob toxic bombs that leave poison zones', max_rank: 8, category: 'weapon' },
 
-    { id: 'snake_nest',  name: 'Snake Nest',   description: 'Lob an egg that hatches mini snakes to hunt enemies', rarity: 'rare' },
-    { id: 'chronofield', name: 'Chronofield',  description: '+25% duration on all timed effects', rarity: 'uncommon' },
-    { id: 'multishot',   name: 'Hydra Fangs',  description: '+1 extra projectile to all weapons',  rarity: 'rare', max_rank: 3 },
-    { id: 'fangs',       name: 'Viper Fangs',  description: 'Fire homing fang projectiles at nearby enemies', rarity: 'uncommon' },
+    { id: 'snake_nest',  name: 'Snake Nest',   description: 'Lob an egg that hatches mini snakes to hunt enemies', max_rank: 8, category: 'weapon' },
+    { id: 'chronofield', name: 'Chronofield',  description: '+25% duration on all timed effects', max_rank: 8, category: 'effect' },
+    { id: 'multishot',   name: 'Coiled Volley', description: '+1 extra projectile to all weapons', max_rank: 2, category: 'effect' },
+    { id: 'fangs',       name: 'Viper Fangs',  description: 'Fire homing fang projectiles at nearby enemies', max_rank: 8, category: 'weapon' },
+    { id: 'venom_nova',  name: 'Venom Nova',   description: 'Pulse poison damage around your head', max_rank: 8, category: 'weapon' },
+    { id: 'blast_radius', name: 'Toxic Expanse', description: 'Your poison spreads wider — +15% AOE radius on all effects', max_rank: 8, category: 'effect' },
+    { id: 'weapon_range', name: "Serpent's Reach", description: '+12% weapon targeting range', max_rank: 8, category: 'effect' },
+    { id: 'sidewinder',  name: 'Sidewinder Beam', description: 'Lock a tracking beam onto the nearest enemy', max_rank: 8, category: 'weapon' },
+    { id: 'ricochet',   name: 'Ricochet Fang',  description: 'Bouncing fang that chains between enemies — damage ramps per bounce', max_rank: 8, category: 'weapon' },
+    { id: 'cobra_pit',  name: 'Cobra Pit',      description: 'Lob a pit that spawns spitting cobras to guard an area', max_rank: 8, category: 'weapon' },
+    { id: 'tongue_lash', name: 'Tongue Lash',   description: 'Quick forked tongue whip — hits enemies in a cone and slows them', max_rank: 8, category: 'weapon' },
 ];
+
+const VS_EVOLUTION_DEFS = [
+    { id: 'miasma', name: 'Miasma', description: 'Permanent toxic fog — repels enemies and deals 300 dmg', requires: ['venom_nova', 'blast_radius'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
+    { id: 'hydra_brood', name: 'Hydra Brood', description: 'Two-headed mini snakes that split in two when they die', requires: ['snake_nest', 'multishot'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
+    { id: 'serpent_gatling', name: "Serpent's Gatling", description: 'Rapid-fire piercing fangs that shred through multiple enemies', requires: ['fangs', 'atk_speed'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
+    { id: 'consumption_beam', name: 'Consumption Beam', description: 'Always-on drain beam — absorbs enemies directly for 3× growth', requires: ['sidewinder', 'gorger'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
+    { id: 'singularity_mortar', name: 'Singularity Mortar', description: 'Gravity well pulls enemies in then detonates for 2500 dmg', requires: ['plague', 'magnet'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
+    { id: 'shatter_fang', name: 'Shatter Fang', description: 'Crits shatter the fang into splinters that chain and shatter again', requires: ['ricochet', 'crit'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
+    { id: 'ancient_brood_pit', name: 'Ancient Brood Pit', description: 'Ever-expanding pit spawns ancient cobras across a growing territory', requires: ['cobra_pit', 'chronofield'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
+    { id: 'serpents_reckoning', name: "Serpent's Reckoning", description: 'Grapple tongue latches onto distant enemies and drags them back through the crowd', requires: ['tongue_lash', 'weapon_range'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
+];
+
+// Map: base weapon ID → evolution ID that replaces it
+const WEAPON_TO_EVOLUTION = {};
+for (const evo of VS_EVOLUTION_DEFS) {
+    for (const req of evo.requires) {
+        const def = VS_POWERUP_DEFS.find(p => p.id === req);
+        if (def && def.category === 'weapon') {
+            WEAPON_TO_EVOLUTION[req] = evo.id;
+        }
+    }
+}
 
 export class BattleRoyaleApp {
     constructor(canvas) {
@@ -106,11 +150,28 @@ export class BattleRoyaleApp {
         this.vs_level_up_active = false;
         this.vs_level_up_choices = [];
         this.vs_level_up_index = 0;
-        this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0 };
+        this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0, venom_nova: 0, blast_radius: 0, weapon_range: 0, sidewinder: 0, ricochet: 0, cobra_pit: 0, tongue_lash: 0, miasma: 0, hydra_brood: 0, serpent_gatling: 0, consumption_beam: 0, singularity_mortar: 0, shatter_fang: 0, ancient_brood_pit: 0, serpents_reckoning: 0 };
         this.vs_invuln_start = 0;
         this.poison_mortar = null;
         this.snake_nest = null;
         this.fang_barrage = null;
+        this.sidewinder_beam = null;
+        this.consumption_beam = null;
+        this.singularity_mortar = null;
+        this.ricochet_fang = null;
+        this.shatter_fang = null;
+        this.cobra_pit = null;
+        this.ancient_brood_pit = null;
+        this.chest_lottery = null;
+        this.miasma = null;
+        this.hydra_brood = null;
+        this.serpent_gatling = null;
+        this.grey_snake = null;
+        this.vs_lottery_active = false;
+        this.vs_debug_menu_active = false;
+        this.vs_debug_menu_index = 0;
+        this.vs_evo_menu_active = false;
+        this.vs_evo_menu_scroll = 0;
 
         this.paused = false;
         this.pause_start = 0;
@@ -163,7 +224,7 @@ export class BattleRoyaleApp {
             update() { self.update_playing(); },
             render() {
                 self.render_playing();
-                if (self.paused) {
+                if (self.paused && !self.vs_evo_menu_active) {
                     self.render_pause_overlay();
                 }
             },
@@ -174,9 +235,14 @@ export class BattleRoyaleApp {
             render() {
                 self.render_playing();
                 if (self.mode !== 'survivors') self.particles.render(self.renderer.ctx);
+                let msg = 'VICTORY! #1 — Press Space';
+                if (self.mode === 'survivors') {
+                    const kills = self.enemy_manager ? self.enemy_manager.total_kills : 0;
+                    msg = `YOU WON! 20:00 — ${kills} kills — Press Space`;
+                }
                 self.ui_renderer.draw_overlay(
                     self.renderer.ctx,
-                    'VICTORY! #1 — Press Space',
+                    msg,
                     self.renderer.logical_width,
                     self.renderer.logical_height
                 );
@@ -231,7 +297,46 @@ export class BattleRoyaleApp {
                 return;
             }
 
+            if (state === 'COUNTDOWN' && this.mode === 'survivors' && action === 'direction') {
+                this.game_started = true;
+                this.last_tick_time = performance.now();
+                this.last_food_spawn = performance.now();
+                if (this.zone_shrinker) this.zone_shrinker.start();
+                this.fsm.transition('PLAYING');
+                this.input.queue_direction(data, this.player_snake?.direction, false);
+                return;
+            }
+
             if (state === 'PLAYING') {
+                // Lottery dismiss
+                if (this.vs_lottery_active && this.chest_lottery) {
+                    if (action === 'enter' || action === 'space') {
+                        if (this.chest_lottery.phase === 'spinning') {
+                            this.chest_lottery.skip_animation();
+                        } else {
+                            const won = this.chest_lottery.dismiss();
+                            if (won) {
+                                for (const item of won) {
+                                    this.apply_powerup(item.id);
+                                }
+                                this.vs_lottery_active = false;
+                                this.vs_last_frame_time = performance.now();
+                                this.vs_resume_countdown_start = performance.now();
+                            }
+                        }
+                    }
+                    return;
+                }
+                // During resume countdown, arrow keys skip it and queue direction
+                if (this.vs_resume_countdown_start > 0) {
+                    if (action === 'direction') {
+                        this.vs_resume_countdown_start = 0;
+                        this.vs_invuln_start = performance.now();
+                        this.vs_last_frame_time = performance.now();
+                        this.input.queue_direction(data, this.player_snake?.direction, false);
+                    }
+                    return;
+                }
                 if (this.vs_level_up_active) {
                     if (action === 'menu_left') {
                         this.vs_level_up_index = (this.vs_level_up_index - 1 + this.vs_level_up_choices.length) % this.vs_level_up_choices.length;
@@ -241,6 +346,47 @@ export class BattleRoyaleApp {
                         this.select_level_up_choice(this.vs_level_up_index);
                     } else if (action === 'number' && data >= 1 && data <= this.vs_level_up_choices.length) {
                         this.select_level_up_choice(data - 1);
+                    }
+                    return;
+                }
+                if (this.mode === 'survivors' && action === 'evolution_menu') {
+                    this.vs_evo_menu_active = !this.vs_evo_menu_active;
+                    this.vs_evo_menu_scroll = 0;
+                    if (this.vs_evo_menu_active && !this.paused) {
+                        this.toggle_pause();
+                    } else if (!this.vs_evo_menu_active && this.paused) {
+                        this.toggle_pause();
+                    }
+                    return;
+                }
+                if (this.vs_evo_menu_active) {
+                    if (action === 'escape') {
+                        this.vs_evo_menu_active = false;
+                        if (this.paused) this.toggle_pause();
+                    } else if (action === 'menu_up') {
+                        this.vs_evo_menu_scroll = Math.max(0, this.vs_evo_menu_scroll - 1);
+                    } else if (action === 'menu_down') {
+                        this.vs_evo_menu_scroll = Math.min(VS_EVOLUTION_DEFS.length - 1, this.vs_evo_menu_scroll + 1);
+                    }
+                    return;
+                }
+                // DEBUG MENU TEMPORARILY DISABLED
+                // if (this.mode === 'survivors' && action === 'debug_menu') {
+                //     this.vs_debug_menu_active = !this.vs_debug_menu_active;
+                //     this.vs_debug_menu_index = 0;
+                //     return;
+                // }
+                if (this.vs_debug_menu_active) {
+                    const all_defs = [...VS_POWERUP_DEFS, ...VS_EVOLUTION_DEFS];
+                    if (action === 'menu_up') {
+                        this.vs_debug_menu_index = (this.vs_debug_menu_index - 1 + all_defs.length) % all_defs.length;
+                    } else if (action === 'menu_down') {
+                        this.vs_debug_menu_index = (this.vs_debug_menu_index + 1) % all_defs.length;
+                    } else if (action === 'enter' || action === 'space') {
+                        const def = all_defs[this.vs_debug_menu_index];
+                        this.apply_powerup(def.id);
+                    } else if (action === 'escape') {
+                        this.vs_debug_menu_active = false;
                     }
                     return;
                 }
@@ -281,6 +427,20 @@ export class BattleRoyaleApp {
         if (this.damage_numbers) this.damage_numbers.clear();
         if (this.poison_mortar) this.poison_mortar.clear();
         if (this.snake_nest) this.snake_nest.clear();
+        if (this.venom_nova) this.venom_nova.clear();
+        if (this.miasma) this.miasma.clear();
+        if (this.hydra_brood) this.hydra_brood.clear();
+        if (this.serpent_gatling) this.serpent_gatling.clear();
+        if (this.sidewinder_beam) this.sidewinder_beam.clear();
+        if (this.consumption_beam) this.consumption_beam.clear();
+        if (this.singularity_mortar) this.singularity_mortar.clear();
+        if (this.ricochet_fang) this.ricochet_fang.clear();
+        if (this.shatter_fang) this.shatter_fang.clear();
+        if (this.cobra_pit) this.cobra_pit.clear();
+        if (this.ancient_brood_pit) this.ancient_brood_pit.clear();
+        if (this.tongue_lash) this.tongue_lash.clear();
+        if (this.serpents_reckoning) this.serpents_reckoning.clear();
+        if (this.chest_lottery) this.chest_lottery.clear();
 
         if (this.mode === 'solo') {
             this.init_solo();
@@ -352,6 +512,22 @@ export class BattleRoyaleApp {
         this.poison_mortar = new PoisonMortar();
         this.snake_nest = new SnakeNest();
         this.fang_barrage = new FangBarrage();
+        this.venom_nova = new VenomNova();
+        this.chest_lottery = new ChestLottery();
+        this.miasma = new Miasma();
+        this.hydra_brood = new HydraBrood();
+        this.serpent_gatling = new SerpentGatling();
+        this.sidewinder_beam = new SidewinderBeam();
+        this.consumption_beam = new ConsumptionBeam();
+        this.singularity_mortar = new SingularityMortar();
+        this.ricochet_fang = new RicochetFang();
+        this.shatter_fang = new ShatterFang();
+        this.cobra_pit = new CobraPit();
+        this.ancient_brood_pit = new AncientBroodPit();
+        this.tongue_lash = new TongueLash();
+        this.serpents_reckoning = new SerpentsReckoning();
+        this.grey_snake = new GreySnakeManager(VS_ARENA_SIZE);
+        this.vs_lottery_active = false;
 
         const cx = Math.floor(VS_ARENA_SIZE / 2);
         const cy = Math.floor(VS_ARENA_SIZE / 2);
@@ -359,6 +535,7 @@ export class BattleRoyaleApp {
         this.snakes.push(this.player_snake);
 
         this.camera.snap_to(cx + 0.5, cy + 0.5);
+        this._last_frame_time = 0;
         this.zone_shrinker = null;
         this.survivors_start_time = performance.now();
         this.vs_last_frame_time = performance.now();
@@ -369,8 +546,9 @@ export class BattleRoyaleApp {
         this.vs_level_up_active = false;
         this.vs_level_up_choices = [];
         this.vs_level_up_index = 0;
-        this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0 };
+        this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0, venom_nova: 0, blast_radius: 0, weapon_range: 0, sidewinder: 0, ricochet: 0, cobra_pit: 0, tongue_lash: 0, miasma: 0, hydra_brood: 0, serpent_gatling: 0, consumption_beam: 0, singularity_mortar: 0, shatter_fang: 0, ancient_brood_pit: 0, serpents_reckoning: 0 };
         this.vs_invuln_start = 0;
+        this.vs_resume_countdown_start = 0;
 
         this.enclosed_region = null;
 
@@ -412,6 +590,27 @@ export class BattleRoyaleApp {
                 }
                 if (this.snake_nest && this.snake_nest.last_fire > 0) {
                     this.snake_nest.last_fire += pause_duration;
+                }
+                if (this.hydra_brood && this.hydra_brood.last_fire > 0) {
+                    this.hydra_brood.last_fire += pause_duration;
+                }
+                if (this.serpent_gatling && this.serpent_gatling.last_fire > 0) {
+                    this.serpent_gatling.last_fire += pause_duration;
+                }
+                if (this.sidewinder_beam && this.sidewinder_beam.last_fire > 0) {
+                    this.sidewinder_beam.last_fire += pause_duration;
+                }
+                if (this.singularity_mortar && this.singularity_mortar.last_fire > 0) {
+                    this.singularity_mortar.last_fire += pause_duration;
+                }
+                if (this.chest_lottery) {
+                    this.chest_lottery.pause_adjust(pause_duration);
+                }
+                if (this.grey_snake) {
+                    this.grey_snake.pause_adjust(pause_duration);
+                }
+                if (this.vs_resume_countdown_start > 0) {
+                    this.vs_resume_countdown_start += pause_duration;
                 }
             }
             if (this.mode === 'solo') {
@@ -486,6 +685,26 @@ export class BattleRoyaleApp {
 
     update_survivors() {
         if (this.vs_level_up_active) return;
+        if (this.vs_debug_menu_active) return;
+
+        // Lottery animation runs even while game is "paused" for it
+        if (this.vs_lottery_active && this.chest_lottery) {
+            const dt = Math.min((performance.now() - this.vs_last_frame_time) / 1000, 0.1);
+            this.vs_last_frame_time = performance.now();
+            this.chest_lottery.update(dt);
+            return;
+        }
+
+        // Resume countdown freezes gameplay
+        if (this.vs_resume_countdown_start > 0) {
+            const elapsed = performance.now() - this.vs_resume_countdown_start;
+            if (elapsed >= 1500) {
+                this.vs_resume_countdown_start = 0;
+                this.vs_invuln_start = performance.now();
+            }
+            this.vs_last_frame_time = performance.now();
+            return;
+        }
 
         const now = performance.now();
         const dt = Math.min((now - this.vs_last_frame_time) / 1000, 0.1);
@@ -495,8 +714,10 @@ export class BattleRoyaleApp {
         if (!snake || !snake.alive) return;
 
         const cell = this.renderer.cell_size;
+        const vs_invuln_dur = VS_INVULN_DURATION * (1 + this.vs_powerups.chronofield * 0.25);
+        const vs_immune = this.vs_invuln_start > 0 && now - this.vs_invuln_start < vs_invuln_dur;
         this.enemy_manager.excluded_region = this.enclosed_region;
-        this.enemy_manager.update(dt, snake, this.arena, this.particles, cell, this.damage_numbers);
+        this.enemy_manager.update(dt, snake, this.arena, this.particles, cell, this.damage_numbers, vs_immune);
 
         this.bullet_manager.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
 
@@ -512,7 +733,74 @@ export class BattleRoyaleApp {
             this.fang_barrage.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
         }
 
+        if (this.venom_nova) {
+            this.venom_nova.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        }
+
+        if (this.miasma) {
+            this.miasma.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        }
+
+        if (this.hydra_brood) {
+            this.hydra_brood.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        }
+
+        if (this.serpent_gatling) {
+            this.serpent_gatling.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        }
+
+        if (this.sidewinder_beam) {
+            this.sidewinder_beam.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        }
+
+        if (this.consumption_beam) {
+            this.consumption_beam.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        }
+
+        if (this.singularity_mortar) {
+            this.singularity_mortar.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        }
+
+        if (this.cobra_pit) {
+            this.cobra_pit.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        }
+
+        if (this.ancient_brood_pit) {
+            this.ancient_brood_pit.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        }
+
+        if (this.ricochet_fang) {
+            this.ricochet_fang.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        }
+
+        if (this.shatter_fang) {
+            this.shatter_fang.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        }
+
+        if (this.tongue_lash) {
+            this.tongue_lash.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        }
+
+        if (this.serpents_reckoning) {
+            this.serpents_reckoning.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        }
+
+        if (this.grey_snake) {
+            this.grey_snake.update(dt, snake);
+        }
+
+        // Split dead splitter enemies into children
+        this.enemy_manager.process_splits(this.particles, cell);
+
+        // Spawn chests from boss deaths
+        if (this.chest_lottery && this.enemy_manager.boss_deaths.length > 0) {
+            for (const bd of this.enemy_manager.boss_deaths) {
+                this.chest_lottery.spawn_chest(bd.x, bd.y);
+            }
+        }
+
         this.damage_numbers.update(dt);
+
 
         if (this.enemy_manager.player_hp <= 0 && snake.alive) {
             snake.alive = false;
@@ -528,9 +816,6 @@ export class BattleRoyaleApp {
             this.fsm.transition('DEATH');
             return;
         }
-
-        const vs_invuln_dur = VS_INVULN_DURATION * (1 + this.vs_powerups.chronofield * 0.25);
-        const vs_immune = this.vs_invuln_start > 0 && now - this.vs_invuln_start < vs_invuln_dur;
 
         if (now - this.last_tick_time >= VS_TICK_RATE) {
             const dir = this.input.dequeue();
@@ -575,6 +860,54 @@ export class BattleRoyaleApp {
                 this.check_constrictor_enclosure(snake);
             }
 
+            // Check chest pickup — only level up powerups the player already owns
+            if (snake.alive && this.chest_lottery && this.chest_lottery.chests.length > 0) {
+                const owned_defs = VS_POWERUP_DEFS.filter(p =>
+                    this.vs_powerups[p.id] > 0 &&
+                    !(p.max_rank && this.vs_powerups[p.id] >= p.max_rank) &&
+                    !(WEAPON_TO_EVOLUTION[p.id] && this.vs_powerups[WEAPON_TO_EVOLUTION[p.id]] > 0)
+                );
+                // Check for eligible evolutions
+                const guaranteed = [];
+                for (const evo of VS_EVOLUTION_DEFS) {
+                    if (this.vs_powerups[evo.id]) continue;
+                    if (evo.requires.every(req => {
+                        const def = VS_POWERUP_DEFS.find(p => p.id === req);
+                        return this.vs_powerups[req] >= (def ? def.max_rank : 8);
+                    })) {
+                        owned_defs.push(evo);
+                        guaranteed.push(evo);
+                    }
+                }
+                if (owned_defs.length > 0) {
+                    const picked = this.chest_lottery.check_pickup(snake.head.x, snake.head.y, owned_defs, guaranteed);
+                    if (picked) {
+                        this.vs_lottery_active = true;
+                        return;
+                    }
+                }
+            }
+
+            // Check heart pickup
+            if (snake.alive && this.enemy_manager.heart_drops.length > 0) {
+                const hx = snake.head.x;
+                const hy = snake.head.y;
+                for (let i = this.enemy_manager.heart_drops.length - 1; i >= 0; i--) {
+                    const h = this.enemy_manager.heart_drops[i];
+                    if (h.x === hx && h.y === hy) {
+                        this.enemy_manager.heart_drops.splice(i, 1);
+                        if (this.enemy_manager.player_hp < 5) {
+                            this.enemy_manager.player_hp++;
+                            if (this.particles) {
+                                const px = (hx + 0.5) * cell;
+                                const py = (hy + 0.5) * cell;
+                                this.particles.emit(px, py, 6, '#ff4466', 3);
+                            }
+                        }
+                    }
+                }
+            }
+
             if (this.vs_powerups.magnet > 0 && snake.alive) {
                 const hx = snake.head.x;
                 const hy = snake.head.y;
@@ -589,32 +922,64 @@ export class BattleRoyaleApp {
             }
 
             const grow_after = snake.segments.length + snake.grow_pending;
-            const gained = grow_after - grow_before;
+            const beam_xp = this.consumption_beam ? this.consumption_beam.pending_xp : 0;
+            if (this.consumption_beam) this.consumption_beam.pending_xp = 0;
+            const reckoning_xp = this.serpents_reckoning ? this.serpents_reckoning.pending_xp : 0;
+            if (this.serpents_reckoning) this.serpents_reckoning.pending_xp = 0;
+            const gained = (grow_after - grow_before) + beam_xp + reckoning_xp;
             if (gained > 0) {
-                if (this.vs_powerups.gorger > 0) {
-                    snake.grow_pending += gained * this.vs_powerups.gorger;
+                const gorger_lvl = this.vs_powerups.gorger;
+                if (gorger_lvl > 0) {
+                    snake.grow_pending += gained * gorger_lvl;
                 }
-                this.vs_xp += gained;
+                // Gorger XP boost: +25% per rank (rank 8 = 3× XP)
+                const xp_gained = gorger_lvl > 0 ? gained * (1 + gorger_lvl * 0.25) : gained;
+                this.vs_xp += xp_gained;
                 while (this.vs_xp >= this.vs_xp_for_next) {
                     this.vs_xp -= this.vs_xp_for_next;
                     this.vs_level++;
                     this.vs_xp_for_next = this.vs_level * 5;
-                    this.vs_level_up_active = true;
+                    const owned_weapons = [...VS_POWERUP_DEFS, ...VS_EVOLUTION_DEFS].filter(d => d.category === 'weapon' && this.vs_powerups[d.id] > 0 && !(WEAPON_TO_EVOLUTION[d.id] && this.vs_powerups[WEAPON_TO_EVOLUTION[d.id]] > 0)).length;
+                    const owned_effects = [...VS_POWERUP_DEFS, ...VS_EVOLUTION_DEFS].filter(d => d.category === 'effect' && this.vs_powerups[d.id] > 0).length;
                     const pool = VS_POWERUP_DEFS.filter(p => {
                         if (p.one_time && this.vs_powerups[p.id]) return false;
                         if (p.max_rank && this.vs_powerups[p.id] >= p.max_rank) return false;
+                        if (WEAPON_TO_EVOLUTION[p.id] && this.vs_powerups[WEAPON_TO_EVOLUTION[p.id]] > 0) return false;
+                        if (this.vs_powerups[p.id] === 0) {
+                            if (p.category === 'weapon' && owned_weapons >= 6) return false;
+                            if (p.category === 'effect' && owned_effects >= 6) return false;
+                        }
                         return true;
                     });
-                    const normal_pool = pool.filter(p => p.rarity !== 'ultra');
-                    const ultra_pool = pool.filter(p => p.rarity === 'ultra');
-                    const shuffled = [...normal_pool].sort(() => Math.random() - 0.5);
-                    const choices = shuffled.slice(0, 3);
-                    if (ultra_pool.length > 0 && Math.random() < 0.12) {
-                        choices[Math.floor(Math.random() * choices.length)] = ultra_pool[Math.floor(Math.random() * ultra_pool.length)];
+                    if (pool.length === 0) continue;
+                    this.vs_level_up_active = true;
+                    // Weighted selection: favour powerups the player already owns
+                    const choices = [];
+                    const remaining = [...pool];
+                    for (let i = 0; i < 3 && remaining.length > 0; i++) {
+                        const weights = remaining.map(p => this.vs_powerups[p.id] > 0 ? 3 : 1);
+                        const total = weights.reduce((a, b) => a + b, 0);
+                        let r = Math.random() * total;
+                        let idx = 0;
+                        for (idx = 0; idx < weights.length; idx++) {
+                            r -= weights[idx];
+                            if (r <= 0) break;
+                        }
+                        choices.push(remaining.splice(idx, 1)[0]);
+                    }
+                    // Guarantee at least one weapon choice
+                    if (!choices.some(c => c.category === 'weapon')) {
+                        const weapon_pool = remaining.filter(p => p.category === 'weapon');
+                        if (weapon_pool.length > 0) {
+                            const w = weapon_pool[Math.floor(Math.random() * weapon_pool.length)];
+                            choices[choices.length - 1] = w;
+                        }
                     }
                     this.vs_level_up_choices = choices.map(p => ({
                         ...p,
-                        description: this.get_powerup_desc(p.id),
+                        stats: this.get_powerup_desc(p.id),
+                        is_new: this.vs_powerups[p.id] === 0,
+                        current_level: this.vs_powerups[p.id],
                     }));
                     this.vs_level_up_index = 0;
                 }
@@ -635,6 +1000,23 @@ export class BattleRoyaleApp {
 
                     this.fsm.transition('DEATH');
                 }
+            }
+
+            // Grey snake barrier — instant death on contact
+            if (snake.alive && this.grey_snake && this.grey_snake.check_collision(snake.head.x, snake.head.y)) {
+                snake.alive = false;
+                this.enemy_manager.player_hp = 0;
+                this.survivors_final_elapsed = Math.floor((performance.now() - this.survivors_start_time) / 1000);
+                const cx = (snake.head.x + 0.5) * cell;
+                const cy = (snake.head.y + 0.5) * cell;
+                this.particles.emit(cx, cy, 25, '#888', 5);
+                const kills = this.enemy_manager.total_kills;
+                if (kills > this.survivors_high_score) {
+                    this.survivors_high_score = kills;
+                    localStorage.setItem('snake_vs_high', String(kills));
+                }
+                this.fsm.transition('DEATH');
+                return;
             }
 
             this.last_tick_time = now;
@@ -905,11 +1287,29 @@ export class BattleRoyaleApp {
 
         ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
         ctx.fillRect(0, 0, w, h);
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 80px monospace';
+
+        let text, color;
+        if (count > 0) {
+            text = count.toString();
+            color = count >= 2 ? '#ff4444' : '#ffaa00';
+        } else {
+            text = 'GO!';
+            color = '#44ff44';
+        }
+
+        const phase_t = (elapsed % 1000) / 1000;
+        const scale = 1 + 0.3 * Math.max(0, 1 - phase_t * 3);
+
+        ctx.save();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(count > 0 ? count.toString() : 'GO!', w / 2, h / 2);
+        ctx.font = `bold ${Math.round(80 * scale)}px monospace`;
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 20;
+        ctx.fillText(text, w / 2, h / 2);
+        ctx.shadowBlur = 0;
+        ctx.restore();
     }
 
     render_playing() {
@@ -1044,16 +1444,22 @@ export class BattleRoyaleApp {
 
         this.renderer.clear();
 
+        const now = performance.now();
+
         let t = 1;
         if (this.last_tick_time > 0) {
-            t = Math.min((performance.now() - this.last_tick_time) / VS_TICK_RATE, 1);
+            t = Math.min((now - this.last_tick_time) / VS_TICK_RATE, 1);
         }
 
+        const dt = this._last_frame_time ? (now - this._last_frame_time) / 1000 : 0.016;
+        this._last_frame_time = now;
+
+        let interp_hx = 0, interp_hy = 0;
         if (this.player_snake && this.camera) {
             const head = this.player_snake.head;
-            const hx = head.prev_x + (head.x - head.prev_x) * t + 0.5;
-            const hy = head.prev_y + (head.y - head.prev_y) * t + 0.5;
-            this.camera.update(hx, hy);
+            interp_hx = head.prev_x + (head.x - head.prev_x) * t + 0.5;
+            interp_hy = head.prev_y + (head.y - head.prev_y) * t + 0.5;
+            this.camera.update(interp_hx, interp_hy, dt);
         }
 
         ctx.save();
@@ -1062,13 +1468,42 @@ export class BattleRoyaleApp {
         this.survivors_renderer.render_arena_border(ctx, VS_ARENA_SIZE, cell);
 
         this.survivors_renderer.render_food(ctx, this.arena.food, cell, this.camera);
+        this.survivors_renderer.render_hearts(ctx, this.enemy_manager.heart_drops, cell, this.camera);
+
+        // Render chests on the ground
+        if (this.chest_lottery) {
+            this.chest_lottery.render_chests(ctx, cell, this.camera);
+        }
 
         if (this.poison_mortar) {
             this.poison_mortar.render_pools(ctx, cell);
         }
 
+        if (this.singularity_mortar) {
+            this.singularity_mortar.render_wells(ctx, cell);
+        }
+
         if (this.snake_nest) {
             this.snake_nest.render_nests(ctx, cell);
+        }
+
+        if (this.hydra_brood) {
+            this.hydra_brood.render_nests(ctx, cell);
+        }
+
+        if (this.cobra_pit) {
+            this.cobra_pit.render_pits(ctx, cell);
+        }
+
+        if (this.ancient_brood_pit) {
+            this.ancient_brood_pit.render_pits(ctx, cell);
+        }
+
+        const cox = this.camera.half_view_x - this.camera.x;
+        const coy = this.camera.half_view_y - this.camera.y;
+
+        if (this.grey_snake) {
+            this.survivors_renderer.render_grey_snakes(ctx, this.grey_snake, cell, cox, coy);
         }
 
         this.survivors_renderer.render_enemies(ctx, this.enemy_manager.enemies, cell);
@@ -1079,7 +1514,6 @@ export class BattleRoyaleApp {
 
         if (this.player_snake && this.player_snake.alive) {
             let color = '#fff';
-            const now = performance.now();
             const vs_invuln_dur = VS_INVULN_DURATION * (1 + this.vs_powerups.chronofield * 0.25);
             const vs_immune = this.vs_invuln_start > 0 && now - this.vs_invuln_start < vs_invuln_dur;
             if (vs_immune) {
@@ -1089,8 +1523,6 @@ export class BattleRoyaleApp {
             } else if (this.enemy_manager && this.enemy_manager.player_i_frames > 0) {
                 color = Math.floor(now / 80) % 2 === 0 ? '#f44' : '#fff';
             }
-            const cox = this.camera.half_view_x - this.camera.x;
-            const coy = this.camera.half_view_y - this.camera.y;
             this.snake_renderer.render(ctx, this.player_snake.segments, cell, t, color, 1.0, cox, coy);
         }
 
@@ -1098,15 +1530,70 @@ export class BattleRoyaleApp {
             this.poison_mortar.render_projectiles(ctx, cell);
         }
 
+        if (this.singularity_mortar) {
+            this.singularity_mortar.render_projectiles(ctx, cell);
+        }
+
         if (this.snake_nest) {
             this.snake_nest.render_projectiles(ctx, cell);
-            const cox = this.camera.half_view_x - this.camera.x;
-            const coy = this.camera.half_view_y - this.camera.y;
-            this.snake_nest.render_mini_snakes(ctx, cell, t, cox, coy);
+            this.snake_nest.render_mini_snakes(ctx, cell);
+        }
+
+        if (this.hydra_brood) {
+            this.hydra_brood.render_projectiles(ctx, cell);
+            this.hydra_brood.render_snakes(ctx, cell);
         }
 
         if (this.fang_barrage) {
             this.fang_barrage.render(ctx, cell);
+        }
+
+        if (this.serpent_gatling) {
+            this.serpent_gatling.render(ctx, cell);
+        }
+
+        if (this.ricochet_fang) {
+            this.ricochet_fang.render(ctx, cell);
+        }
+
+        if (this.shatter_fang) {
+            this.shatter_fang.render(ctx, cell);
+        }
+
+        if (this.cobra_pit) {
+            this.cobra_pit.render_cobras(ctx, cell);
+            this.cobra_pit.render_spits(ctx, cell);
+            this.cobra_pit.render_projectiles(ctx, cell);
+        }
+
+        if (this.ancient_brood_pit) {
+            this.ancient_brood_pit.render_cobras(ctx, cell);
+            this.ancient_brood_pit.render_spits(ctx, cell);
+            this.ancient_brood_pit.render_projectiles(ctx, cell);
+        }
+
+        if (this.sidewinder_beam) {
+            this.sidewinder_beam.render_with_head(ctx, cell, interp_hx, interp_hy);
+        }
+
+        if (this.consumption_beam) {
+            this.consumption_beam.render_with_head(ctx, cell, interp_hx, interp_hy);
+        }
+
+        if (this.tongue_lash) {
+            this.tongue_lash.render(ctx, cell);
+        }
+
+        if (this.serpents_reckoning) {
+            this.serpents_reckoning.render_with_head(ctx, cell, interp_hx, interp_hy);
+        }
+
+        if (this.venom_nova) {
+            this.venom_nova.render(ctx, cell);
+        }
+
+        if (this.miasma) {
+            this.miasma.render(ctx, cell, interp_hx, interp_hy);
         }
 
         this.particles.render(ctx);
@@ -1120,13 +1607,220 @@ export class BattleRoyaleApp {
         if (this.player_snake && this.enemy_manager) {
             this.survivors_renderer.render_minimap(
                 ctx, this.player_snake, this.enemy_manager.enemies,
-                VS_ARENA_SIZE, w, h
+                VS_ARENA_SIZE, w, h,
+                this.chest_lottery ? this.chest_lottery.chests : null,
+                this.grey_snake
             );
         }
 
         if (this.vs_level_up_active) {
             this.ui_renderer.draw_item_picker(ctx, this.vs_level_up_choices, this.vs_level_up_index, w, h);
         }
+
+        // Lottery animation overlay
+        if (this.vs_lottery_active && this.chest_lottery) {
+            this.chest_lottery.render_lottery(ctx, cell, w, h);
+        }
+
+        if (this.vs_debug_menu_active) {
+            this.render_debug_menu(ctx, w, h);
+        }
+
+        if (this.vs_evo_menu_active) {
+            this.render_evolution_menu(ctx, w, h);
+        }
+
+        // Resume countdown overlay
+        if (this.vs_resume_countdown_start > 0) {
+            this.render_resume_countdown(ctx, w, h);
+        }
+    }
+
+    render_resume_countdown(ctx, w, h) {
+        const elapsed = performance.now() - this.vs_resume_countdown_start;
+        let text, color;
+        if (elapsed < 1000) {
+            text = '1';
+            color = '#ffaa00';
+        } else {
+            text = 'GO!';
+            color = '#44ff44';
+        }
+
+        // Pulse/scale animation within each phase
+        const phase_t = (elapsed % 1000) / 1000;
+        const scale = 1 + 0.3 * Math.max(0, 1 - phase_t * 3); // pop-in effect
+        const alpha = elapsed >= 1000 ? Math.max(0, 1 - (elapsed - 1000) / 500) : 1;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `bold ${Math.round(80 * scale)}px monospace`;
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 20;
+        ctx.fillText(text, w / 2, h / 2);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    }
+
+    render_debug_menu(ctx, w, h) {
+        const all_defs = [...VS_POWERUP_DEFS, ...VS_EVOLUTION_DEFS];
+        const row_h = 28;
+        const menu_w = 300;
+        const menu_h = 50 + all_defs.length * row_h + 10;
+        const mx = (w - menu_w) / 2;
+        const my = (h - menu_h) / 2;
+
+        // Background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.92)';
+        ctx.fillRect(mx, my, menu_w, menu_h);
+        ctx.strokeStyle = '#0ff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(mx, my, menu_w, menu_h);
+
+        // Title
+        ctx.fillStyle = '#0ff';
+        ctx.font = 'bold 14px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('DEBUG  —  F1 close', mx + menu_w / 2, my + 18);
+
+        // Items
+        for (let i = 0; i < all_defs.length; i++) {
+            const def = all_defs[i];
+            const ry = my + 40 + i * row_h;
+            const lvl = this.vs_powerups[def.id] || 0;
+            const selected = i === this.vs_debug_menu_index;
+
+            if (selected) {
+                ctx.fillStyle = 'rgba(0, 255, 255, 0.12)';
+                ctx.fillRect(mx + 4, ry - row_h / 2 + 2, menu_w - 8, row_h - 2);
+            }
+
+            // Icon
+            const icon = get_powerup_icon(def.id);
+            if (icon) {
+                ctx.drawImage(icon, mx + 10, ry - 9, 18, 18);
+            }
+
+            // Name
+            ctx.fillStyle = selected ? '#0ff' : (def.evolution ? '#ff0' : '#ccc');
+            ctx.font = selected ? 'bold 12px monospace' : '12px monospace';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            const label = def.evolution ? '\u2605 ' + def.name : def.name;
+            ctx.fillText(label, mx + 34, ry);
+
+            // Rank
+            ctx.fillStyle = lvl >= (def.max_rank || 1) ? '#4f4' : '#888';
+            ctx.textAlign = 'right';
+            ctx.fillText(`${lvl}/${def.max_rank || 1}`, mx + menu_w - 12, ry);
+        }
+    }
+
+    render_evolution_menu(ctx, w, h) {
+        const all_powerups = [...VS_POWERUP_DEFS, ...VS_EVOLUTION_DEFS];
+        const name_map = {};
+        for (const def of all_powerups) name_map[def.id] = def.name;
+
+        const evos = VS_EVOLUTION_DEFS;
+        const card_w = 200;
+        const card_h = 120;
+        const gap = 16;
+        const cols = Math.min(evos.length, 3);
+        const rows = Math.ceil(evos.length / cols);
+        const total_w = cols * card_w + (cols - 1) * gap;
+        const total_h = rows * card_h + (rows - 1) * gap;
+        const menu_pad = 30;
+        const title_h = 50;
+        const hint_h = 30;
+        const menu_w = total_w + menu_pad * 2;
+        const menu_h = total_h + title_h + hint_h + menu_pad;
+        const mx = (w - menu_w) / 2;
+        const my = (h - menu_h) / 2;
+
+        // Background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.92)';
+        ctx.fillRect(mx, my, menu_w, menu_h);
+        ctx.strokeStyle = '#ff0';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(mx, my, menu_w, menu_h);
+
+        // Title
+        ctx.fillStyle = '#ff0';
+        ctx.font = 'bold 18px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('\u2605 EVOLUTIONS \u2605', mx + menu_w / 2, my + 28);
+
+        // Cards
+        for (let i = 0; i < evos.length; i++) {
+            const evo = evos[i];
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            const cx = mx + menu_pad + col * (card_w + gap);
+            const cy = my + title_h + row * (card_h + gap);
+
+            const owned = (this.vs_powerups[evo.id] || 0) > 0;
+            const req_met = evo.requires.every(r => (this.vs_powerups[r] || 0) >= 8);
+
+            // Card border
+            ctx.strokeStyle = owned ? '#4f4' : (req_met ? '#0ff' : '#555');
+            ctx.lineWidth = owned ? 2.5 : 1.5;
+            ctx.strokeRect(cx, cy, card_w, card_h);
+            ctx.fillStyle = owned ? 'rgba(0, 80, 0, 0.3)' : 'rgba(30, 30, 30, 0.8)';
+            ctx.fillRect(cx + 1, cy + 1, card_w - 2, card_h - 2);
+
+            // Icon
+            const icon = get_powerup_icon(evo.id);
+            if (icon) {
+                ctx.drawImage(icon, cx + 8, cy + 8, 32, 32);
+            }
+
+            // Evolution name
+            ctx.fillStyle = owned ? '#4f4' : '#ff0';
+            ctx.font = 'bold 13px monospace';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(evo.name, cx + 48, cy + 16);
+
+            // Status
+            ctx.font = '10px monospace';
+            ctx.fillStyle = owned ? '#4f4' : (req_met ? '#0ff' : '#888');
+            ctx.fillText(owned ? 'UNLOCKED' : (req_met ? 'READY' : 'LOCKED'), cx + 48, cy + 32);
+
+            // Requirements
+            ctx.font = '11px monospace';
+            ctx.textAlign = 'left';
+            for (let r = 0; r < evo.requires.length; r++) {
+                const req_id = evo.requires[r];
+                const req_name = name_map[req_id] || req_id;
+                const req_lvl = this.vs_powerups[req_id] || 0;
+                const met = req_lvl >= 8;
+                const ry = cy + 54 + r * 18;
+
+                const req_icon = get_powerup_icon(req_id);
+                if (req_icon) {
+                    ctx.drawImage(req_icon, cx + 10, ry - 7, 14, 14);
+                }
+
+                ctx.fillStyle = met ? '#4f4' : '#c88';
+                ctx.fillText(`${req_name}`, cx + 28, ry);
+
+                ctx.fillStyle = met ? '#4f4' : '#888';
+                ctx.textAlign = 'right';
+                ctx.fillText(`${req_lvl}/8`, cx + card_w - 10, ry);
+                ctx.textAlign = 'left';
+            }
+        }
+
+        // Hint
+        ctx.fillStyle = '#666';
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('F2 or ESC to close  \u2022  Get both requirements to Rank 8, then open a chest', mx + menu_w / 2, my + menu_h - 14);
     }
 
     render_survivors_hud(ctx, w, h) {
@@ -1154,23 +1848,71 @@ export class BattleRoyaleApp {
 
         const icon_size = 20;
         const icon_gap = 4;
-        let icon_x = 12;
-        const icon_y = 68;
-        const rarity_colors = { common: '#888', uncommon: '#4a4', rare: '#44f', legendary: '#fa0', ultra: '#f22' };
-        for (const def of VS_POWERUP_DEFS) {
+        const box_size = icon_size + 4;
+        const box_gap = icon_gap;
+        const max_slots = 4;
+        const all_defs = [...VS_POWERUP_DEFS, ...VS_EVOLUTION_DEFS];
+        const row_height = box_size + 14;
+
+        // Collect owned weapons and effects
+        const owned_weapons = [];
+        const owned_effects = [];
+        for (const def of all_defs) {
             const lvl = this.vs_powerups[def.id];
             if (lvl > 0) {
+                // Skip base weapons that have been evolved
+                if (WEAPON_TO_EVOLUTION[def.id] && this.vs_powerups[WEAPON_TO_EVOLUTION[def.id]] > 0) continue;
+                if (def.category === 'weapon') owned_weapons.push(def);
+                else if (def.category === 'effect') owned_effects.push(def);
+            }
+        }
+
+        // Top row: weapons
+        const weapon_y = 68;
+        for (let i = 0; i < max_slots; i++) {
+            const bx = 12 + i * (box_size + box_gap);
+            ctx.strokeStyle = '#444';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(bx, weapon_y, box_size, box_size);
+
+            if (i < owned_weapons.length) {
+                const def = owned_weapons[i];
+                const lvl = this.vs_powerups[def.id];
                 const icon = get_powerup_icon(def.id);
                 if (icon) {
-                    ctx.drawImage(icon, icon_x, icon_y, icon_size, icon_size);
-                    if (!def.one_time && lvl > 1) {
-                        ctx.fillStyle = rarity_colors[def.rarity] || '#fff';
-                        ctx.font = 'bold 9px monospace';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'top';
-                        ctx.fillText(lvl, icon_x + icon_size / 2, icon_y + icon_size + 1);
-                    }
-                    icon_x += icon_size + icon_gap;
+                    ctx.drawImage(icon, bx + 2, weapon_y + 2, icon_size, icon_size);
+                }
+                if (!def.one_time && lvl > 1) {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 9px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(lvl, bx + box_size / 2, weapon_y + box_size + 1);
+                }
+            }
+        }
+
+        // Bottom row: effects
+        const effect_y = weapon_y + row_height;
+        for (let i = 0; i < max_slots; i++) {
+            const bx = 12 + i * (box_size + box_gap);
+            ctx.strokeStyle = '#444';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(bx, effect_y, box_size, box_size);
+
+            if (i < owned_effects.length) {
+                const def = owned_effects[i];
+                const lvl = this.vs_powerups[def.id];
+                const icon = get_powerup_icon(def.id);
+                if (icon) {
+                    ctx.drawImage(icon, bx + 2, effect_y + 2, icon_size, icon_size);
+                }
+                if (!def.one_time && lvl > 1) {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 9px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(lvl, bx + box_size / 2, effect_y + box_size + 1);
                 }
             }
         }
@@ -1228,10 +1970,12 @@ export class BattleRoyaleApp {
                 return `Attack speed: +${cur}% \u2192 +${next}%`;
             }
             case 'crit': {
-                return `Crit chance: ${lvl * 10}% \u2192 ${(lvl + 1) * 10}%`;
+                return `Crit chance: ${(lvl * 12.5).toFixed(1)}% \u2192 ${((lvl + 1) * 12.5).toFixed(1)}%`;
             }
             case 'gorger': {
-                return `Fang dmg: ${1 + lvl} \u2192 ${2 + lvl} | Growth: \u00d7${1 + lvl} \u2192 \u00d7${2 + lvl}`;
+                const cur_pct = lvl <= 0 ? 0 : Math.round(10 + (lvl - 1) * (40 / 7));
+                const next_pct = Math.round(10 + lvl * (40 / 7));
+                return `Dmg: +${cur_pct}%\u2192+${next_pct}% | Growth: \u00d7${1 + lvl}\u2192\u00d7${2 + lvl} | XP: \u00d7${1 + lvl}\u2192\u00d7${2 + lvl}`;
             }
             case 'plague': {
                 if (lvl === 0) return 'Lob toxic bombs: 2.2 radius, 4.0s cooldown';
@@ -1256,7 +2000,7 @@ export class BattleRoyaleApp {
                 return `Duration bonus: +${cur_pct}% → +${next_pct}%`;
             }
             case 'multishot': {
-                return `Extra projectiles on all weapons: +${lvl} → +${lvl + 1} (max +3)`;
+                return `Extra projectiles on all weapons: +${lvl} → +${lvl + 1} (max +2)`;
             }
             case 'fangs': {
                 if (lvl === 0) return 'Fire 1 homing fang, 2.5s cooldown';
@@ -1266,38 +2010,233 @@ export class BattleRoyaleApp {
                 const next_cd = (Math.max(1, 2.5 - lvl * 0.25)).toFixed(1);
                 return `Fangs: ${cur_count}→${next_count} | CD: ${cur_cd}s→${next_cd}s`;
             }
+            case 'venom_nova': {
+                if (lvl === 0) return 'Poison pulse: 2.5 radius, 3.5s cooldown';
+                const cur_cd = Math.max(1.2, 3.5 - (lvl - 1) * 0.35);
+                const next_cd = Math.max(1.2, 3.5 - lvl * 0.35);
+                const cur_r = (2.5 + (lvl - 1) * 0.4).toFixed(1);
+                const next_r = (2.5 + lvl * 0.4).toFixed(1);
+                return `CD: ${cur_cd.toFixed(1)}s→${next_cd.toFixed(1)}s | Radius: ${cur_r}→${next_r}`;
+            }
+            case 'blast_radius': {
+                const cur_pct = lvl * 15;
+                const next_pct = (lvl + 1) * 15;
+                return `AOE radius bonus: +${cur_pct}% → +${next_pct}%`;
+            }
+            case 'weapon_range': {
+                const cur_pct = lvl * 12;
+                const next_pct = (lvl + 1) * 12;
+                return `Weapon range: +${cur_pct}% → +${next_pct}%`;
+            }
+            case 'sidewinder': {
+                if (lvl === 0) return 'Tracking beam: 15 dmg/tick for 2.5s, locks onto nearest enemy';
+                const cur_dmg = lvl * 15;
+                const next_dmg = (lvl + 1) * 15;
+                const cur_cd = (Math.max(2.0, 5.0 - (lvl - 1) * 0.4)).toFixed(1);
+                const next_cd = (Math.max(2.0, 5.0 - lvl * 0.4)).toFixed(1);
+                return `Dmg: ${cur_dmg}→${next_dmg}/tick | CD: ${cur_cd}s→${next_cd}s`;
+            }
+            case 'cobra_pit': {
+                if (lvl === 0) return 'Spawns 4 spitting cobras that guard an area for 6s';
+                const cur_cobras = 4 + Math.floor((lvl - 1) / 3);
+                const next_cobras = 4 + Math.floor(lvl / 3);
+                const cur_cd = Math.max(3.5, 8 - (lvl - 1) * 0.55);
+                const next_cd = Math.max(3.5, 8 - lvl * 0.55);
+                return `Cobras: ${cur_cobras}→${next_cobras} | CD: ${cur_cd.toFixed(1)}s→${next_cd.toFixed(1)}s`;
+            }
+            case 'tongue_lash': {
+                if (lvl === 0) return 'Forked tongue whip: 80 dmg cone, slows enemies to 40% speed for 1.5s';
+                const tl_cur_dmg = (1 + Math.floor(lvl / 2)) * 80;
+                const tl_next_dmg = (1 + Math.floor((lvl + 1) / 2)) * 80;
+                const tl_cur_cd = (Math.max(0.6, 2.0 - (lvl - 1) * 0.18)).toFixed(1);
+                const tl_next_cd = (Math.max(0.6, 2.0 - lvl * 0.18)).toFixed(1);
+                return `Dmg: ${tl_cur_dmg}→${tl_next_dmg} | CD: ${tl_cur_cd}s→${tl_next_cd}s`;
+            }
+            case 'ricochet': {
+                if (lvl === 0) return 'Bouncing fang: 200 dmg, 3 bounces, damage ramps +20% per bounce';
+                const cur_bounces = 3 + Math.floor((lvl - 1) / 2);
+                const next_bounces = 3 + Math.floor(lvl / 2);
+                const cur_cd = (Math.max(1.5, 3.5 - (lvl - 1) * 0.3)).toFixed(1);
+                const next_cd = (Math.max(1.5, 3.5 - lvl * 0.3)).toFixed(1);
+                return `Bounces: ${cur_bounces}→${next_bounces} | CD: ${cur_cd}s→${next_cd}s`;
+            }
+            case 'miasma':
+                return 'Permanent toxic fog — repels enemies, 300 dmg/tick';
+            case 'hydra_brood':
+                return 'Two-headed mini snakes split into 2 headless brood on death';
+            case 'serpent_gatling':
+                return 'Rapid-fire piercing fangs — 120 dmg, pierce 3 enemies, 180ms cooldown';
+            case 'consumption_beam':
+                return 'Always-on drain beam — 80 dmg/tick, absorb enemies for 3× growth + vacuum fruit';
+            case 'singularity_mortar':
+                return 'Gravity well pulls enemies in for 2s then detonates for 2500 dmg';
+            case 'shatter_fang':
+                return 'Crits shatter fangs into 3 splinters that chain and shatter again — up to 3 generations deep';
+            case 'ancient_brood_pit':
+                return 'Ever-expanding pit endlessly spawns ancient cobras — 120 dmg spit, pit grows over time';
             default: return '';
         }
     }
 
     apply_powerup(id) {
-        const def = VS_POWERUP_DEFS.find(p => p.id === id);
+        const def = VS_POWERUP_DEFS.find(p => p.id === id) || VS_EVOLUTION_DEFS.find(p => p.id === id);
         if (def && def.one_time) {
             this.vs_powerups[id] = 1;
         } else {
             this.vs_powerups[id]++;
         }
-        if (this.bullet_manager) {
-            this.bullet_manager.fire_cooldown_mult = Math.pow(0.85, this.vs_powerups.atk_speed);
-            this.bullet_manager.crit_chance = this.vs_powerups.crit * 0.10;
-            this.bullet_manager.bonus_dmg = this.vs_powerups.gorger;
-            this.bullet_manager.extra_projectiles = this.vs_powerups.multishot;
-        }
+        // Gorger: 10% at rank 1 → 50% at rank 8 direct damage bonus
+        const gorger = this.vs_powerups.gorger;
+        const gorger_dmg_mult = gorger > 0 ? 1 + (10 + (gorger - 1) * (40 / 7)) / 100 : 1;
         const dur_mult = 1 + this.vs_powerups.chronofield * 0.25;
         const extra = this.vs_powerups.multishot;
+        const radius_mult = 1 + this.vs_powerups.blast_radius * 0.15;
+        const range_mult = 1 + this.vs_powerups.weapon_range * 0.12;
+        const fire_cd_mult = Math.pow(0.85, this.vs_powerups.atk_speed);
+        if (this.bullet_manager) {
+            this.bullet_manager.fire_cooldown_mult = fire_cd_mult;
+            this.bullet_manager.crit_chance = this.vs_powerups.crit * 0.125;
+            this.bullet_manager.gorger_dmg_mult = gorger_dmg_mult;
+            this.bullet_manager.extra_projectiles = this.vs_powerups.multishot;
+            this.bullet_manager.range_mult = range_mult;
+        }
         if (this.poison_mortar) {
-            this.poison_mortar.level = this.vs_powerups.plague;
+            this.poison_mortar.level = this.vs_powerups.singularity_mortar ? 0 : this.vs_powerups.plague;
             this.poison_mortar.duration_mult = dur_mult;
             this.poison_mortar.extra_projectiles = extra;
+            this.poison_mortar.radius_mult = radius_mult;
+            this.poison_mortar.range_mult = range_mult;
+            this.poison_mortar.fire_cooldown_mult = fire_cd_mult;
+        }
+        if (this.singularity_mortar && this.vs_powerups.singularity_mortar) {
+            this.singularity_mortar.active = true;
+            this.singularity_mortar.crit_chance = this.vs_powerups.crit * 0.125;
+            this.singularity_mortar.gorger_dmg_mult = gorger_dmg_mult;
+            this.singularity_mortar.radius_mult = radius_mult;
+            this.singularity_mortar.duration_mult = dur_mult;
+            this.singularity_mortar.range_mult = range_mult;
+            this.singularity_mortar.fire_cooldown_mult = fire_cd_mult;
         }
         if (this.snake_nest) {
-            this.snake_nest.level = this.vs_powerups.snake_nest;
+            this.snake_nest.level = this.vs_powerups.hydra_brood ? 0 : this.vs_powerups.snake_nest;
             this.snake_nest.duration_mult = dur_mult;
             this.snake_nest.extra_projectiles = extra;
+            this.snake_nest.range_mult = range_mult;
+            this.snake_nest.fire_cooldown_mult = fire_cd_mult;
+        }
+        if (this.hydra_brood && this.vs_powerups.hydra_brood) {
+            this.hydra_brood.active = true;
+            this.hydra_brood.duration_mult = dur_mult;
+            this.hydra_brood.range_mult = range_mult;
+            this.hydra_brood.fire_cooldown_mult = fire_cd_mult;
         }
         if (this.fang_barrage) {
-            this.fang_barrage.level = this.vs_powerups.fangs;
+            this.fang_barrage.level = this.vs_powerups.serpent_gatling ? 0 : this.vs_powerups.fangs;
             this.fang_barrage.extra_projectiles = extra;
+            this.fang_barrage.crit_chance = this.vs_powerups.crit * 0.125;
+            this.fang_barrage.gorger_dmg_mult = gorger_dmg_mult;
+            this.fang_barrage.range_mult = range_mult;
+            this.fang_barrage.fire_cooldown_mult = fire_cd_mult;
+        }
+        if (this.serpent_gatling && this.vs_powerups.serpent_gatling) {
+            this.serpent_gatling.active = true;
+            this.serpent_gatling.extra_projectiles = extra;
+            this.serpent_gatling.crit_chance = this.vs_powerups.crit * 0.125;
+            this.serpent_gatling.gorger_dmg_mult = gorger_dmg_mult;
+            this.serpent_gatling.range_mult = range_mult;
+            this.serpent_gatling.fire_cooldown_mult = fire_cd_mult;
+        }
+        if (this.venom_nova) {
+            this.venom_nova.level = this.vs_powerups.miasma ? 0 : this.vs_powerups.venom_nova;
+            this.venom_nova.duration_mult = dur_mult;
+            this.venom_nova.extra_projectiles = extra;
+            this.venom_nova.radius_mult = radius_mult;
+            this.venom_nova.gorger_dmg_mult = gorger_dmg_mult;
+            this.venom_nova.crit_chance = this.vs_powerups.crit * 0.125;
+            this.venom_nova.fire_cooldown_mult = fire_cd_mult;
+        }
+        if (this.miasma && this.vs_powerups.miasma) {
+            this.miasma.active = true;
+            this.miasma.gorger_dmg_mult = gorger_dmg_mult;
+            this.miasma.radius_mult = radius_mult;
+            this.miasma.crit_chance = this.vs_powerups.crit * 0.125;
+        }
+        if (this.sidewinder_beam) {
+            this.sidewinder_beam.level = this.vs_powerups.consumption_beam ? 0 : this.vs_powerups.sidewinder;
+            this.sidewinder_beam.extra_projectiles = extra;
+            this.sidewinder_beam.crit_chance = this.vs_powerups.crit * 0.125;
+            this.sidewinder_beam.range_mult = range_mult;
+            this.sidewinder_beam.duration_mult = dur_mult;
+            this.sidewinder_beam.gorger_dmg_mult = gorger_dmg_mult;
+            this.sidewinder_beam.fire_cooldown_mult = fire_cd_mult;
+        }
+        if (this.consumption_beam && this.vs_powerups.consumption_beam) {
+            this.consumption_beam.active = true;
+            this.consumption_beam.extra_projectiles = extra;
+            this.consumption_beam.crit_chance = this.vs_powerups.crit * 0.125;
+            this.consumption_beam.gorger_dmg_mult = gorger_dmg_mult;
+            this.consumption_beam.duration_mult = dur_mult;
+            this.consumption_beam.range_mult = range_mult;
+        }
+        if (this.ricochet_fang) {
+            this.ricochet_fang.level = this.vs_powerups.shatter_fang ? 0 : this.vs_powerups.ricochet;
+            this.ricochet_fang.extra_projectiles = extra;
+            this.ricochet_fang.crit_chance = this.vs_powerups.crit * 0.125;
+            this.ricochet_fang.gorger_dmg_mult = gorger_dmg_mult;
+            this.ricochet_fang.duration_mult = dur_mult;
+            this.ricochet_fang.radius_mult = radius_mult;
+            this.ricochet_fang.range_mult = range_mult;
+            this.ricochet_fang.fire_cooldown_mult = fire_cd_mult;
+        }
+        if (this.shatter_fang && this.vs_powerups.shatter_fang) {
+            this.shatter_fang.active = true;
+            this.shatter_fang.extra_projectiles = extra;
+            this.shatter_fang.crit_chance = this.vs_powerups.crit * 0.125;
+            this.shatter_fang.gorger_dmg_mult = gorger_dmg_mult;
+            this.shatter_fang.duration_mult = dur_mult;
+            this.shatter_fang.radius_mult = radius_mult;
+            this.shatter_fang.range_mult = range_mult;
+            this.shatter_fang.fire_cooldown_mult = fire_cd_mult;
+        }
+        if (this.cobra_pit) {
+            this.cobra_pit.level = this.vs_powerups.ancient_brood_pit ? 0 : this.vs_powerups.cobra_pit;
+            this.cobra_pit.duration_mult = dur_mult;
+            this.cobra_pit.extra_projectiles = extra;
+            this.cobra_pit.crit_chance = this.vs_powerups.crit * 0.125;
+            this.cobra_pit.gorger_dmg_mult = gorger_dmg_mult;
+            this.cobra_pit.radius_mult = radius_mult;
+            this.cobra_pit.range_mult = range_mult;
+            this.cobra_pit.fire_cooldown_mult = fire_cd_mult;
+        }
+        if (this.ancient_brood_pit && this.vs_powerups.ancient_brood_pit) {
+            this.ancient_brood_pit.active = true;
+            this.ancient_brood_pit.duration_mult = dur_mult;
+            this.ancient_brood_pit.extra_projectiles = extra;
+            this.ancient_brood_pit.crit_chance = this.vs_powerups.crit * 0.125;
+            this.ancient_brood_pit.gorger_dmg_mult = gorger_dmg_mult;
+            this.ancient_brood_pit.radius_mult = radius_mult;
+            this.ancient_brood_pit.range_mult = range_mult;
+            this.ancient_brood_pit.fire_cooldown_mult = fire_cd_mult;
+        }
+        if (this.tongue_lash) {
+            this.tongue_lash.level = this.vs_powerups.serpents_reckoning ? 0 : this.vs_powerups.tongue_lash;
+            this.tongue_lash.crit_chance = this.vs_powerups.crit * 0.125;
+            this.tongue_lash.gorger_dmg_mult = gorger_dmg_mult;
+            this.tongue_lash.extra_projectiles = extra;
+            this.tongue_lash.range_mult = range_mult;
+            this.tongue_lash.radius_mult = radius_mult;
+            this.tongue_lash.duration_mult = dur_mult;
+            this.tongue_lash.fire_cooldown_mult = fire_cd_mult;
+        }
+        if (this.serpents_reckoning && this.vs_powerups.serpents_reckoning) {
+            this.serpents_reckoning.active = true;
+            this.serpents_reckoning.crit_chance = this.vs_powerups.crit * 0.125;
+            this.serpents_reckoning.gorger_dmg_mult = gorger_dmg_mult;
+            this.serpents_reckoning.extra_projectiles = extra;
+            this.serpents_reckoning.range_mult = range_mult;
+            this.serpents_reckoning.radius_mult = radius_mult;
+            this.serpents_reckoning.duration_mult = dur_mult;
+            this.serpents_reckoning.fire_cooldown_mult = fire_cd_mult;
         }
     }
 
@@ -1405,7 +2344,7 @@ export class BattleRoyaleApp {
         const cell = this.renderer.cell_size;
         let crushed = 0;
         for (const e of this.enemy_manager.enemies) {
-            if (!e.alive) continue;
+            if (!e.alive || e.is_boss) continue;
             const ex = Math.floor(e.x);
             const ey = Math.floor(e.y);
             if (interior_set.has(ex + ',' + ey)) {
@@ -1417,6 +2356,7 @@ export class BattleRoyaleApp {
 
                 if (ex >= 0 && ex < this.arena.size && ey >= 0 && ey < this.arena.size) {
                     this.arena.food.push({ x: ex, y: ey });
+                    this.enemy_manager._try_drop_heart(ex, ey);
                 }
 
                 if (this.damage_numbers) {
@@ -1464,6 +2404,6 @@ export class BattleRoyaleApp {
         this.apply_powerup(this.vs_level_up_choices[index].id);
         this.vs_level_up_active = false;
         this.vs_last_frame_time = performance.now();
-        this.vs_invuln_start = performance.now();
+        this.vs_resume_countdown_start = performance.now();
     }
 }

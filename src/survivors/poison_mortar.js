@@ -1,4 +1,4 @@
-const MORTAR_RANGE = 10;
+const MORTAR_RANGE = 16;
 const MORTAR_RANGE_SQ = MORTAR_RANGE * MORTAR_RANGE;
 const BASE_COOLDOWN = 4000;
 const FLIGHT_DURATION = 0.9;
@@ -17,14 +17,17 @@ export class PoisonMortar {
         this.level = 0;
         this.duration_mult = 1;
         this.extra_projectiles = 0;
+        this.radius_mult = 1;
+        this.range_mult = 1;
+        this.fire_cooldown_mult = 1;
     }
 
     get_cooldown() {
-        return Math.max(1500, BASE_COOLDOWN - (this.level - 1) * 400);
+        return Math.max(1500, BASE_COOLDOWN - (this.level - 1) * 400) * this.fire_cooldown_mult;
     }
 
     get_pool_radius() {
-        return BASE_POOL_RADIUS + (this.level - 1) * POOL_RADIUS_PER_LEVEL;
+        return (BASE_POOL_RADIUS + (this.level - 1) * POOL_RADIUS_PER_LEVEL) * this.radius_mult;
     }
 
     get_damage() {
@@ -42,17 +45,8 @@ export class PoisonMortar {
         // --- Fire at densest enemy cluster ---
         if (now - this.last_fire >= this.get_cooldown()) {
             const pool_r = this.get_pool_radius();
-            const pool_r_sq = pool_r * pool_r;
-            const candidates = [];
-
-            for (const e of enemy_manager.enemies) {
-                if (!e.alive) continue;
-                const dx = e.x - hx;
-                const dy = e.y - hy;
-                if (dx * dx + dy * dy <= MORTAR_RANGE_SQ) {
-                    candidates.push(e);
-                }
-            }
+            const mortar_range = MORTAR_RANGE * this.range_mult;
+            const candidates = enemy_manager.query_radius_array(hx, hy, mortar_range);
 
             let best = null;
             let best_score = -1;
@@ -60,13 +54,7 @@ export class PoisonMortar {
                 : candidates.sort(() => Math.random() - 0.5).slice(0, 15);
 
             for (const e of sample) {
-                let score = 1;
-                for (const other of enemy_manager.enemies) {
-                    if (!other.alive || other === e) continue;
-                    const dx = other.x - e.x;
-                    const dy = other.y - e.y;
-                    if (dx * dx + dy * dy < pool_r_sq) score++;
-                }
+                const score = 1 + enemy_manager.query_count(e.x, e.y, pool_r, e);
                 if (score > best_score) {
                     best_score = score;
                     best = e;
@@ -84,20 +72,56 @@ export class PoisonMortar {
                     trail: [],
                     drips: [],
                 });
-                // Extra mortars from Hydra Fangs — offset around the main target
-                for (let ei = 0; ei < this.extra_projectiles; ei++) {
-                    const angle = (ei / this.extra_projectiles) * Math.PI * 2 + Math.random() * 0.5;
-                    const spread = pool_r * 0.7;
-                    this.projectiles.push({
-                        start_x: hx,
-                        start_y: hy,
-                        target_x: best.x + Math.cos(angle) * spread,
-                        target_y: best.y + Math.sin(angle) * spread,
-                        elapsed: 0,
-                        duration: FLIGHT_DURATION + ei * 0.12,
-                        trail: [],
-                        drips: [],
-                    });
+                // Extra mortars target different enemies spread across the range
+                if (this.extra_projectiles > 0 && candidates.length > 1) {
+                    // Sort remaining candidates by distance from primary target (farthest first for spread)
+                    const used = new Set();
+                    used.add(best);
+                    for (let ei = 0; ei < this.extra_projectiles; ei++) {
+                        let extra_target = null;
+                        let extra_best_score = -1;
+                        for (const e of candidates) {
+                            if (used.has(e)) continue;
+                            // Prefer enemies far from already-targeted spots for spread
+                            let min_dist_sq = Infinity;
+                            for (const u of used) {
+                                const ddx = e.x - u.x;
+                                const ddy = e.y - u.y;
+                                min_dist_sq = Math.min(min_dist_sq, ddx * ddx + ddy * ddy);
+                            }
+                            if (min_dist_sq > extra_best_score) {
+                                extra_best_score = min_dist_sq;
+                                extra_target = e;
+                            }
+                        }
+                        if (extra_target) {
+                            used.add(extra_target);
+                            this.projectiles.push({
+                                start_x: hx,
+                                start_y: hy,
+                                target_x: extra_target.x,
+                                target_y: extra_target.y,
+                                elapsed: 0,
+                                duration: FLIGHT_DURATION + ei * 0.12,
+                                trail: [],
+                                drips: [],
+                            });
+                        } else {
+                            // No more unique targets — offset around primary
+                            const angle = (ei / this.extra_projectiles) * Math.PI * 2 + Math.random() * 0.5;
+                            const spread = pool_r * 1.5;
+                            this.projectiles.push({
+                                start_x: hx,
+                                start_y: hy,
+                                target_x: best.x + Math.cos(angle) * spread,
+                                target_y: best.y + Math.sin(angle) * spread,
+                                elapsed: 0,
+                                duration: FLIGHT_DURATION + ei * 0.12,
+                                trail: [],
+                                drips: [],
+                            });
+                        }
+                    }
                 }
                 this.last_fire = now;
             }
@@ -187,30 +211,25 @@ export class PoisonMortar {
             if (pool.damage_accum >= POOL_DAMAGE_INTERVAL) {
                 pool.damage_accum -= POOL_DAMAGE_INTERVAL;
                 const dmg = this.get_damage();
-                const r_sq = pool.radius * pool.radius;
 
-                for (const e of enemy_manager.enemies) {
-                    if (!e.alive) continue;
-                    const dx = e.x - pool.x;
-                    const dy = e.y - pool.y;
-                    if (dx * dx + dy * dy < r_sq) {
-                        const dead = e.take_damage(dmg);
-                        if (damage_numbers) {
-                            damage_numbers.emit(e.x, e.y - e.radius, dmg, false);
+                enemy_manager.query_radius(pool.x, pool.y, pool.radius, (e) => {
+                    const dead = e.take_damage(dmg);
+                    if (damage_numbers) {
+                        damage_numbers.emit(e.x, e.y - e.radius, dmg, false);
+                    }
+                    if (dead) {
+                        const fx = Math.floor(e.x);
+                        const fy = Math.floor(e.y);
+                        if (fx >= 0 && fx < arena.size && fy >= 0 && fy < arena.size) {
+                            arena.food.push({ x: fx, y: fy });
+                            enemy_manager._try_drop_heart(fx, fy);
                         }
-                        if (dead) {
-                            const fx = Math.floor(e.x);
-                            const fy = Math.floor(e.y);
-                            if (fx >= 0 && fx < arena.size && fy >= 0 && fy < arena.size) {
-                                arena.food.push({ x: fx, y: fy });
-                            }
-                            enemy_manager.total_kills++;
-                            if (particles) {
-                                particles.emit(e.x * cell_size, e.y * cell_size, 8, e.color, 3);
-                            }
+                        enemy_manager.total_kills++;
+                        if (particles) {
+                            particles.emit(e.x * cell_size, e.y * cell_size, 8, e.color, 3);
                         }
                     }
-                }
+                });
             }
 
             if (pool.remaining <= 0) {

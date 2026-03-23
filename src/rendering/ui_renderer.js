@@ -65,7 +65,7 @@ export class UIRenderer {
         ctx.fillText('CHOOSE AN ITEM', w / 2, 60);
 
         const card_width = 160;
-        const card_height = 250;
+        const card_height = 290;
         const gap = 20;
         const total_width = items.length * card_width + (items.length - 1) * gap;
         const start_x = (w - total_width) / 2;
@@ -76,54 +76,110 @@ export class UIRenderer {
             const x = start_x + i * (card_width + gap);
             const y = card_y;
 
-            const is_ultra = item.rarity === 'ultra';
-            if (is_ultra) {
-                ctx.save();
-                ctx.shadowColor = '#f22';
-                ctx.shadowBlur = 12;
-            }
-            ctx.strokeStyle = i === selected_index ? '#0ff' : is_ultra ? '#f22' : '#555';
-            ctx.lineWidth = i === selected_index ? 3 : is_ultra ? 2 : 1;
+            ctx.strokeStyle = i === selected_index ? '#0ff' : '#555';
+            ctx.lineWidth = i === selected_index ? 3 : 1;
             ctx.strokeRect(x, y, card_width, card_height);
-            if (is_ultra) ctx.restore();
 
-            ctx.fillStyle = is_ultra ? 'rgba(80, 0, 0, 0.5)' : item.type === 'curse' ? 'rgba(80, 0, 0, 0.5)' : 'rgba(30, 30, 30, 0.8)';
+            ctx.fillStyle = item.type === 'curse' ? 'rgba(80, 0, 0, 0.5)' : 'rgba(30, 30, 30, 0.8)';
             ctx.fillRect(x + 1, y + 1, card_width - 2, card_height - 2);
 
-            ctx.fillStyle = is_ultra ? '#f44' : item.type === 'curse' ? '#f44' : '#fff';
+            ctx.fillStyle = item.type === 'curse' ? '#f44' : '#fff';
             ctx.font = 'bold 13px monospace';
             ctx.fillText(item.name, x + card_width / 2, y + 30);
 
-            const rarity_colors = { common: '#888', uncommon: '#4a4', rare: '#44f', legendary: '#fa0', ultra: '#f22' };
-            ctx.fillStyle = rarity_colors[item.rarity] || '#888';
-            ctx.font = '11px monospace';
-            ctx.fillText(item.rarity, x + card_width / 2, y + 52);
+            // "NEW" badge for powerups the player doesn't own yet
+            if (item.is_new) {
+                const bw = 36, bh = 16;
+                const bx = x + card_width - bw - 6;
+                const by = y + 6;
+                ctx.fillStyle = '#0f0';
+                ctx.fillRect(bx, by, bw, bh);
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 10px monospace';
+                ctx.fillText('NEW', bx + bw / 2, by + bh / 2);
+            }
+
+            // Level pips and label
+            if (item.max_rank != null && item.current_level != null) {
+                const cur = item.current_level;
+                const next = cur + 1;
+                const max = item.max_rank;
+
+                if (max > 1) {
+                    // Draw level pips
+                    const pip_w = 8, pip_h = 5, pip_gap = 3;
+                    const pips_total_w = max * pip_w + (max - 1) * pip_gap;
+                    const pips_x = x + (card_width - pips_total_w) / 2;
+                    const pips_y = y + 46;
+                    for (let p = 0; p < max; p++) {
+                        const px = pips_x + p * (pip_w + pip_gap);
+                        if (p < cur) {
+                            ctx.fillStyle = '#0ff';           // owned levels
+                        } else if (p === cur) {
+                            ctx.fillStyle = '#fff';           // the level you're upgrading to
+                        } else {
+                            ctx.fillStyle = '#333';           // locked levels
+                        }
+                        ctx.fillRect(px, pips_y, pip_w, pip_h);
+                    }
+
+                    // "Lv X → Y" label
+                    ctx.fillStyle = '#888';
+                    ctx.font = '10px monospace';
+                    ctx.fillText('Lv ' + cur + ' \u2192 ' + next, x + card_width / 2, pips_y + pip_h + 10);
+                }
+            }
 
             // Draw SVG icon
             const icon = item.id ? get_powerup_icon(item.id) : null;
             if (icon) {
                 const icon_draw_size = 48;
                 const icon_x = x + (card_width - icon_draw_size) / 2;
-                const icon_y = y + 62;
+                const icon_y = y + 68;
                 ctx.drawImage(icon, icon_x, icon_y, icon_draw_size, icon_draw_size);
             }
 
-            ctx.fillStyle = '#ccc';
-            ctx.font = '11px monospace';
-            const words = item.description.split(' ');
-            let line = '';
-            let line_y = y + 126;
-            for (const word of words) {
-                const test = line + word + ' ';
-                if (test.length > 18) {
-                    ctx.fillText(line.trim(), x + card_width / 2, line_y);
-                    line = word + ' ';
-                    line_y += 14;
+            // Description (flavor text)
+            ctx.fillStyle = '#aaa';
+            ctx.font = '10px monospace';
+            const desc_words = item.description.split(' ');
+            let desc_line = '';
+            let desc_y = y + 130;
+            for (const word of desc_words) {
+                const test = desc_line + word + ' ';
+                if (test.length > 20) {
+                    ctx.fillText(desc_line.trim(), x + card_width / 2, desc_y);
+                    desc_line = word + ' ';
+                    desc_y += 12;
                 } else {
-                    line = test;
+                    desc_line = test;
                 }
             }
-            if (line.trim()) ctx.fillText(line.trim(), x + card_width / 2, line_y);
+            if (desc_line.trim()) ctx.fillText(desc_line.trim(), x + card_width / 2, desc_y);
+
+            // Stats (what it buffs)
+            if (item.stats) {
+                desc_y += 16;
+                ctx.fillStyle = '#0ff';
+                ctx.font = 'bold 10px monospace';
+                const stat_parts = item.stats.split(' | ');
+                for (const part of stat_parts) {
+                    const stat_words = part.split(' ');
+                    let stat_line = '';
+                    for (const word of stat_words) {
+                        const test = stat_line + word + ' ';
+                        if (test.length > 20) {
+                            ctx.fillText(stat_line.trim(), x + card_width / 2, desc_y);
+                            stat_line = word + ' ';
+                            desc_y += 12;
+                        } else {
+                            stat_line = test;
+                        }
+                    }
+                    if (stat_line.trim()) ctx.fillText(stat_line.trim(), x + card_width / 2, desc_y);
+                    desc_y += 12;
+                }
+            }
 
             ctx.fillStyle = '#555';
             ctx.font = 'bold 14px monospace';

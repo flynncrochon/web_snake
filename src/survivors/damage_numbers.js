@@ -7,7 +7,7 @@ export class DamageNumberSystem {
         this.numbers.push({
             x,
             y,
-            amount,
+            amount: Math.round(amount),
             is_crit,
             age: 0,
             max_age: 0.6,

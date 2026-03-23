@@ -1,5 +1,4 @@
 const NEST_RANGE = 12;
-const NEST_RANGE_SQ = NEST_RANGE * NEST_RANGE;
 const BASE_NEST_COOLDOWN = 7000;
 const NEST_FLIGHT_DURATION = 0.75;
 const NEST_ARC_HEIGHT = 6;
@@ -18,10 +17,12 @@ export class SnakeNest {
         this.level = 0;
         this.duration_mult = 1;
         this.extra_projectiles = 0;
+        this.range_mult = 1;
+        this.fire_cooldown_mult = 1;
     }
 
     get_cooldown() {
-        return Math.max(2500, BASE_NEST_COOLDOWN - (this.level - 1) * 600);
+        return Math.max(2500, BASE_NEST_COOLDOWN - (this.level - 1) * 600) * this.fire_cooldown_mult;
     }
 
     get_spawn_count() {
@@ -29,7 +30,7 @@ export class SnakeNest {
     }
 
     get_damage() {
-        return (1 + Math.floor(this.level / 3)) * 25;
+        return (1 + Math.floor(this.level / 3)) * 50;
     }
 
     get_max_ticks() {
@@ -46,30 +47,16 @@ export class SnakeNest {
 
         // --- Fire at densest enemy cluster ---
         if (now - this.last_fire >= this.get_cooldown()) {
-            const candidates = [];
-            for (const e of enemy_manager.enemies) {
-                if (!e.alive) continue;
-                const dx = e.x - hx;
-                const dy = e.y - hy;
-                if (dx * dx + dy * dy <= NEST_RANGE_SQ) {
-                    candidates.push(e);
-                }
-            }
+            const nest_range = NEST_RANGE * this.range_mult;
+            const candidates = enemy_manager.query_radius_array(hx, hy, nest_range);
 
             let best = null;
             let best_score = -1;
             const sample = candidates.length <= 12 ? candidates
                 : candidates.sort(() => Math.random() - 0.5).slice(0, 12);
 
-            const cluster_r_sq = 16;
             for (const e of sample) {
-                let score = 1;
-                for (const other of enemy_manager.enemies) {
-                    if (!other.alive || other === e) continue;
-                    const dx = other.x - e.x;
-                    const dy = other.y - e.y;
-                    if (dx * dx + dy * dy < cluster_r_sq) score++;
-                }
+                const score = 1 + enemy_manager.query_count(e.x, e.y, 4, e);
                 if (score > best_score) {
                     best_score = score;
                     best = e;
@@ -87,7 +74,7 @@ export class SnakeNest {
                     trail: [],
                     sparks: [],
                 });
-                // Extra eggs from Hydra Fangs — offset around the main target
+                // Extra eggs from Coiled Volley — offset around the main target
                 for (let ei = 0; ei < this.extra_projectiles; ei++) {
                     const angle = (ei / this.extra_projectiles) * Math.PI * 2 + Math.random() * 0.5;
                     const spread = 2.5;
@@ -245,26 +232,18 @@ export class SnakeNest {
                 continue;
             }
 
-            // Tick-based movement like the main snake
+            // Tick-based movement like the main snake (fixed timestep for smooth interpolation)
             if (now - ms.last_tick_time < MINI_SNAKE_TICK_RATE) continue;
-            ms.last_tick_time = now;
+            ms.last_tick_time += MINI_SNAKE_TICK_RATE;
+            if (now - ms.last_tick_time > MINI_SNAKE_TICK_RATE) {
+                ms.last_tick_time = now;
+            }
             ms.ticks_lived++;
 
             const hd = ms.segments[0];
 
             // Find nearest alive enemy and pick best cardinal direction
-            let nearest = null;
-            let best_dist = Infinity;
-            for (const e of enemy_manager.enemies) {
-                if (!e.alive) continue;
-                const dx = e.x - (hd.x + 0.5);
-                const dy = e.y - (hd.y + 0.5);
-                const d = dx * dx + dy * dy;
-                if (d < best_dist) {
-                    best_dist = d;
-                    nearest = e;
-                }
-            }
+            const nearest = enemy_manager.query_nearest(hd.x + 0.5, hd.y + 0.5, 30);
 
             if (nearest) {
                 const dx = nearest.x - (hd.x + 0.5);
@@ -318,8 +297,7 @@ export class SnakeNest {
             // Check collision with enemies — plow through, damaging all in the path
             const head_cx = next_x + 0.5;
             const head_cy = next_y + 0.5;
-            for (const e of enemy_manager.enemies) {
-                if (!e.alive) continue;
+            enemy_manager.query_radius(head_cx, head_cy, 1.0, (e) => {
                 const edx = e.x - head_cx;
                 const edy = e.y - head_cy;
                 const dist = Math.sqrt(edx * edx + edy * edy);
@@ -342,6 +320,7 @@ export class SnakeNest {
                         const fy = Math.floor(e.y);
                         if (fx >= 0 && fx < arena.size && fy >= 0 && fy < arena.size) {
                             arena.food.push({ x: fx, y: fy });
+                            enemy_manager._try_drop_heart(fx, fy);
                         }
                         enemy_manager.total_kills++;
                         if (particles) {
@@ -353,16 +332,16 @@ export class SnakeNest {
                         e.y += (edy / k_dist) * 1.5;
                     }
                 }
-            }
+            });
         }
     }
 
     // --- Render mini snakes exactly like the main snake, but green ---
-    render_mini_snakes(ctx, cell_size, t, cam_offset_x, cam_offset_y) {
+    render_mini_snakes(ctx, cell_size) {
         const color = '#0f0';
         const seg_size = Math.ceil(cell_size * 0.35);
         const half = seg_size / 2;
-        const use_snap = cam_offset_x !== null && cam_offset_x !== undefined;
+        const now = performance.now();
         const pad = 1;
 
         for (const ms of this.mini_snakes) {
@@ -371,9 +350,9 @@ export class SnakeNest {
             const segs = ms.segments;
 
             // Compute per-snake interpolation t based on its own tick timing
-            const ms_elapsed = performance.now() - ms.last_tick_time;
+            const ms_elapsed = now - ms.last_tick_time;
             const ms_raw = Math.min(ms_elapsed / MINI_SNAKE_TICK_RATE, 1);
-            const ms_t = 1 - (1 - ms_raw) * (1 - ms_raw); // ease-out quad
+            const ms_t = ms_raw;
 
             // Fade alpha near end of life
             const remaining = this.get_max_ticks() - ms.ticks_lived;
@@ -389,15 +368,11 @@ export class SnakeNest {
             ctx.globalAlpha = alpha;
             ctx.fillStyle = color;
 
-            // Compute interpolated positions (same logic as SnakeRenderer)
+            // Compute interpolated positions (same logic as enemy renderer)
             const positions = [];
             for (const seg of segs) {
-                let px = (seg.prev_x + (seg.x - seg.prev_x) * ms_t + 0.5) * cell_size;
-                let py = (seg.prev_y + (seg.y - seg.prev_y) * ms_t + 0.5) * cell_size;
-                if (use_snap) {
-                    px = Math.round(px + cam_offset_x) - cam_offset_x;
-                    py = Math.round(py + cam_offset_y) - cam_offset_y;
-                }
+                const px = (seg.prev_x + (seg.x - seg.prev_x) * ms_t + 0.5) * cell_size;
+                const py = (seg.prev_y + (seg.y - seg.prev_y) * ms_t + 0.5) * cell_size;
                 positions.push({ x: px, y: py });
             }
 
@@ -406,12 +381,8 @@ export class SnakeNest {
                 const a = positions[k];
                 const b = positions[k + 1];
                 // Also connect through the prev position to avoid gaps
-                let cx = (segs[k].prev_x + 0.5) * cell_size;
-                let cy = (segs[k].prev_y + 0.5) * cell_size;
-                if (use_snap) {
-                    cx = Math.round(cx + cam_offset_x) - cam_offset_x;
-                    cy = Math.round(cy + cam_offset_y) - cam_offset_y;
-                }
+                const cx = (segs[k].prev_x + 0.5) * cell_size;
+                const cy = (segs[k].prev_y + 0.5) * cell_size;
 
                 const x1 = Math.min(a.x, cx) - half - pad;
                 const y1 = Math.min(a.y, cy) - half - pad;

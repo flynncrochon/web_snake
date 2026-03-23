@@ -1,5 +1,5 @@
 export class Enemy {
-    constructor(x, y, speed = 1.5, hp = 1, length = 1) {
+    constructor(x, y, speed = 1.5, hp = 1, length = 1, splitter_gen = 0, is_boss = false) {
         const gx = Math.round(x);
         const gy = Math.round(y);
 
@@ -7,7 +7,9 @@ export class Enemy {
         this.hp = hp;
         this.max_hp = hp;
         this.alive = true;
-        this.radius = hp > 100 ? 0.45 : 0.35;
+        this.is_boss = is_boss;
+        this.radius = is_boss ? 0.55 : (hp > 100 ? 0.45 : 0.35);
+        this.splitter_gen = splitter_gen; // 0 = normal, 1 = big splitter, 2 = medium, 3 = small (final)
 
         // External position (head center) for collision compat
         this.x = gx + 0.5;
@@ -29,19 +31,45 @@ export class Enemy {
         this.last_tick_time = performance.now() - Math.random() * this.tick_rate;
     }
 
+    get is_splitter() {
+        return this.splitter_gen > 0;
+    }
+
     get color() {
+        if (this.is_boss) return '#bb44ff';
+        if (this.splitter_gen === 1) return '#2266cc';
+        if (this.splitter_gen === 2) return '#3388dd';
+        if (this.splitter_gen === 3) return '#44aaee';
         if (this.max_hp >= 300) return '#a00';
         if (this.max_hp >= 200) return '#c22';
         return '#c00';
     }
 
     get body_color() {
+        if (this.is_boss) return '#7722aa';
+        if (this.splitter_gen === 1) return '#1a4488';
+        if (this.splitter_gen === 2) return '#2266aa';
+        if (this.splitter_gen === 3) return '#3388cc';
         if (this.max_hp >= 300) return '#700';
         if (this.max_hp >= 200) return '#911';
         return '#900';
     }
 
     update(now, target_x, target_y, arena_size) {
+        // Skip movement while being pulled by a gravity well
+        if (this.pulled_until && now < this.pulled_until) return;
+
+        // Restore normal tick rate after pull ends
+        let effective_speed = this.speed;
+        if (this._tongue_slow > 0) {
+            effective_speed *= this._tongue_slow_factor || 0.4;
+        }
+        const normal_tick_rate = 1000 / effective_speed;
+        if (Math.abs(this.tick_rate - normal_tick_rate) > 1) {
+            this.tick_rate = normal_tick_rate;
+            this.last_tick_time = now;
+        }
+
         if (now - this.last_tick_time < this.tick_rate) return;
         this.last_tick_time += this.tick_rate;
         if (now - this.last_tick_time > this.tick_rate) {
@@ -116,6 +144,7 @@ export class Enemy {
     }
 
     take_damage(amount = 125) {
+        if (this._reckoning_immune) return false;
         this.hp -= amount;
         if (this.hp <= 0) {
             this.alive = false;
