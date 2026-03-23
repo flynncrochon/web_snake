@@ -11,7 +11,7 @@ Classic snake. Eat food, grow longer, try not to die. High scores saved locally.
 You vs 15 AI snakes. The arena shrinks every 8 seconds. Last one alive wins.
 
 ### Survivors
-This is the big one. Vampire Survivors-style roguelike where you fight off waves of enemies for 20 minutes across a huge arena. Enemies get tougher and split when killed. You level up by collecting XP and pick from random powerups each level — there are 16 base weapons and 8 evolutions you can unlock by combining the right ones.
+Vampire Survivors-style roguelike where you fight off waves of enemies for 20 minutes across a huge arena. Enemies get tougher and split when killed. You level up by collecting XP and pick from random powerups each level — there are 16 base weapons and 8 evolutions you can unlock by combining the right ones.
 
 **Weapons:**
 - Viper Fangs — homing fang projectiles
