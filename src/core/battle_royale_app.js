@@ -770,7 +770,6 @@ export class BattleRoyaleApp {
         this._perf_time('U:grey_snake', () => {
             if (this.grey_snake) {
                 this.grey_snake.update(dt, snake);
-                this.grey_snake.check_encircled_by(snake);
             }
         });
 

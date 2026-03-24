@@ -239,70 +239,7 @@ export class GreySnakeManager {
         return { dx: 0, dy: Math.sign(dy) };
     }
 
-    /** Kill any grey snake fully encircled by the player's body. */
-    check_encircled_by(player_snake) {
-        const plen = player_snake.segments.length;
-        // A snake of length N can enclose at most ~N*N/4 cells
-        if (plen < 8) return; // too short to encircle anything
 
-        const walls = new Set();
-        for (const seg of player_snake.segments) {
-            walls.add(seg.x + ',' + seg.y);
-        }
-
-        const max_area = Math.ceil(plen * plen * 0.25);
-
-        for (const gs of this.snakes) {
-            if (!gs.alive) continue;
-
-            // Build a set of the grey snake's own segments for fast lookup
-            const own = new Set();
-            for (const seg of gs.segments) {
-                own.add(seg.x + ',' + seg.y);
-            }
-
-            const head = gs.segments[0];
-            const visited = new Set();
-            const queue = [{ x: head.x, y: head.y }];
-            visited.add(head.x + ',' + head.y);
-            let escaped = false;
-
-            while (queue.length > 0 && !escaped) {
-                const { x, y } = queue.shift();
-
-                // Reached arena edge — not enclosed
-                if (x <= 0 || x >= this.arena_size - 1 ||
-                    y <= 0 || y >= this.arena_size - 1) {
-                    escaped = true;
-                    break;
-                }
-
-                // Visited more cells than the player could possibly enclose
-                if (visited.size > max_area) {
-                    escaped = true;
-                    break;
-                }
-
-                for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
-                    const nx = x + dx;
-                    const ny = y + dy;
-                    const key = nx + ',' + ny;
-                    if (nx < 0 || nx >= this.arena_size || ny < 0 || ny >= this.arena_size) continue;
-                    if (visited.has(key) || walls.has(key) || own.has(key)) continue;
-                    visited.add(key);
-                    queue.push({ x: nx, y: ny });
-                }
-            }
-
-            if (!escaped) {
-                gs.alive = false;
-                // Remove its barriers
-                for (const seg of gs.segments) {
-                    this.barriers.delete(seg.x + ',' + seg.y);
-                }
-            }
-        }
-    }
 
     check_collision(px, py) {
         if (this.barriers.has(px + ',' + py)) return true;
