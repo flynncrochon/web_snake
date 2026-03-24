@@ -956,7 +956,7 @@ export class BattleRoyaleApp {
             if (this.consumption_beam) this.consumption_beam.pending_xp = 0;
             const reckoning_xp = this.serpents_reckoning ? this.serpents_reckoning.pending_xp : 0;
             if (this.serpents_reckoning) this.serpents_reckoning.pending_xp = 0;
-            const gained = ((grow_after - grow_before) + beam_xp + reckoning_xp) * 1.2;
+            const gained = ((grow_after - grow_before) + beam_xp + reckoning_xp) * 1.5;
             if (gained > 0) {
                 const gorger_lvl = this.vs_powerups.gorger;
                 if (gorger_lvl > 0) {
