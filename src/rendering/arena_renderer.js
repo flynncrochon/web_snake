@@ -2,16 +2,18 @@ export class ArenaRenderer {
     render(ctx, arena, cell_size, logical_size, warning_active) {
         const zone = arena.safe_zone;
 
-        for (let x = 0; x < arena.size; x++) {
-            for (let y = 0; y < arena.size; y++) {
-                if (!arena.is_in_safe_zone(x, y)) {
-                    ctx.fillStyle = warning_active
-                        ? `rgba(180, 0, 0, ${0.3 + 0.15 * Math.sin(performance.now() / 150)})`
-                        : 'rgba(80, 0, 0, 0.4)';
-                    ctx.fillRect(x * cell_size, y * cell_size, cell_size, cell_size);
-                }
-            }
-        }
+        // Fill entire arena with danger color, then overdraw safe zone with black
+        // (2 fillRects instead of 2500 per-cell checks)
+        const alpha = warning_active ? 0.3 + 0.15 * Math.sin(performance.now() / 150) : 0.4;
+        ctx.fillStyle = warning_active ? `rgba(180, 0, 0, ${alpha})` : 'rgba(80, 0, 0, 0.4)';
+        ctx.fillRect(0, 0, arena.size * cell_size, arena.size * cell_size);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(
+            zone.x1 * cell_size,
+            zone.y1 * cell_size,
+            (zone.x2 - zone.x1 + 1) * cell_size,
+            (zone.y2 - zone.y1 + 1) * cell_size
+        );
 
         ctx.strokeStyle = warning_active ? '#f44' : '#444';
         ctx.lineWidth = 2;

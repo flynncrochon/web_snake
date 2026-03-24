@@ -1,4 +1,5 @@
 import { get_powerup_icon } from '../rendering/powerup_icons.js';
+import { play_chest_open, play_roulette_tick, play_roulette_settle } from '../audio/sound.js';
 
 // Smooth easing helpers
 function ease_out_cubic(t) { return 1 - Math.pow(1 - t, 3); }
@@ -59,6 +60,7 @@ export class ChestLottery {
         this.chest_wy = gy;
         this.start_time = performance.now();
         this.phase = 'spinning';
+        play_chest_open();
         this.all_item_defs = powerup_defs;
         this.won_items = [];
         this.beam_color_t = 0;
@@ -89,6 +91,7 @@ export class ChestLottery {
                 settle_progress: 0, // 0→1 smooth settle animation
                 decel_start: 1.8 + i * 0.4 + Math.random() * 0.3,
                 opacity: 0,         // fade in
+                prev_scroll: Math.random() * powerup_defs.length,
             });
         }
 
@@ -196,9 +199,15 @@ export class ChestLottery {
                     }
                     beam.settled_item = item;
                     this.won_items.push(beam.settled_item);
+                    play_roulette_settle();
                 }
             }
 
+            // Tick sound when an item cycles past
+            if (Math.floor(beam.scroll_offset) !== Math.floor(beam.prev_scroll)) {
+                play_roulette_tick();
+            }
+            beam.prev_scroll = beam.scroll_offset;
             beam.scroll_offset += beam.scroll_speed * dt;
         }
 
@@ -307,8 +316,6 @@ export class ChestLottery {
         // Subtle glow
         const pulse = (Math.sin(performance.now() / 500) + 1) / 2;
         ctx.save();
-        ctx.shadowColor = '#FFD700';
-        ctx.shadowBlur = 4 + pulse * 6;
         ctx.globalAlpha = 0.15 + pulse * 0.1;
         ctx.fillStyle = '#FFD700';
         ctx.fillRect(cx - 4*u, cy - 4*u, 8*u, 8*u);
@@ -361,50 +368,35 @@ export class ChestLottery {
             // Beam breathing pulse
             const breath = 0.85 + Math.sin(now / 200 + bi * 1.5) * 0.15;
 
-            // Outer glow (widest, most transparent)
-            const grad_outer = ctx.createLinearGradient(chest_cx, chest_cy, ex, ey);
-            grad_outer.addColorStop(0, `rgba(${r|0}, ${g|0}, ${b_c|0}, ${0.15 * base_alpha * breath})`);
-            grad_outer.addColorStop(0.7, `rgba(${r|0}, ${g|0}, ${b_c|0}, ${0.08 * base_alpha * breath})`);
-            grad_outer.addColorStop(1, `rgba(${r|0}, ${g|0}, ${b_c|0}, 0)`);
-            ctx.save();
-            ctx.strokeStyle = grad_outer;
+            // Outer glow (widest, most transparent) — solid stroke
+            ctx.strokeStyle = `rgba(${r|0}, ${g|0}, ${b_c|0}, ${(0.1 * base_alpha * breath).toFixed(3)})`;
             ctx.lineWidth = 80;
             ctx.lineCap = 'round';
             ctx.beginPath();
             ctx.moveTo(chest_cx, chest_cy);
             ctx.lineTo(ex, ey);
             ctx.stroke();
-            ctx.restore();
 
-            // Mid glow
-            const grad_mid = ctx.createLinearGradient(chest_cx, chest_cy, ex, ey);
-            grad_mid.addColorStop(0, `rgba(${r|0}, ${g|0}, ${b_c|0}, ${0.35 * base_alpha * breath})`);
-            grad_mid.addColorStop(0.8, `rgba(${r|0}, ${g|0}, ${b_c|0}, ${0.15 * base_alpha * breath})`);
-            grad_mid.addColorStop(1, `rgba(${r|0}, ${g|0}, ${b_c|0}, 0)`);
-            ctx.save();
-            ctx.strokeStyle = grad_mid;
+            // Mid glow — solid stroke
+            ctx.strokeStyle = `rgba(${r|0}, ${g|0}, ${b_c|0}, ${(0.25 * base_alpha * breath).toFixed(3)})`;
             ctx.lineWidth = 30;
             ctx.lineCap = 'round';
             ctx.beginPath();
             ctx.moveTo(chest_cx, chest_cy);
             ctx.lineTo(ex, ey);
             ctx.stroke();
-            ctx.restore();
 
-            // Inner bright core
-            const grad_core = ctx.createLinearGradient(chest_cx, chest_cy, ex, ey);
-            grad_core.addColorStop(0, `rgba(255, 255, 255, ${0.5 * base_alpha * breath})`);
-            grad_core.addColorStop(0.5, `rgba(${Math.min(255,r+60)|0}, ${Math.min(255,g+60)|0}, ${Math.min(255,b_c+60)|0}, ${0.3 * base_alpha * breath})`);
-            grad_core.addColorStop(1, `rgba(255, 255, 255, 0)`);
-            ctx.save();
-            ctx.strokeStyle = grad_core;
+            // Inner bright core — solid stroke
+            const cr = Math.min(255, r + 30) | 0;
+            const cg = Math.min(255, g + 30) | 0;
+            const cb = Math.min(255, b_c + 30) | 0;
+            ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${(0.4 * base_alpha * breath).toFixed(3)})`;
             ctx.lineWidth = 6;
             ctx.lineCap = 'round';
             ctx.beginPath();
             ctx.moveTo(chest_cx, chest_cy);
             ctx.lineTo(ex, ey);
             ctx.stroke();
-            ctx.restore();
 
             // Sparkles along this beam
             for (const s of this.sparkles) {
@@ -449,8 +441,6 @@ export class ChestLottery {
             ctx.font = 'bold 22px monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#FFD700';
-            ctx.shadowBlur = 10;
             const item_names = this.won_items.map(i => i.name).join('  +  ');
             ctx.fillText(item_names, w / 2, 50);
             ctx.restore();
@@ -551,8 +541,6 @@ export class ChestLottery {
             // Outer glow ring
             ctx.save();
             ctx.globalAlpha = glow_alpha * 0.4 * beam.opacity;
-            ctx.shadowColor = '#FFD700';
-            ctx.shadowBlur = lerp(0, 35, sp);
             ctx.fillStyle = 'rgba(255, 215, 0, 0.15)';
             ctx.beginPath();
             ctx.arc(mid_px, mid_py, circle_r + 14, 0, Math.PI * 2);
@@ -609,8 +597,6 @@ export class ChestLottery {
             ctx.font = 'bold 14px monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.shadowColor = '#000';
-            ctx.shadowBlur = 4;
             ctx.fillText(display_item.name, mid_px, mid_py + draw_s / 2 + 16);
             ctx.restore();
         }
@@ -679,8 +665,6 @@ export class ChestLottery {
                 // Glow
                 const pulse = (Math.sin(performance.now() / 300) + 1) / 2;
                 ctx.save();
-                ctx.shadowColor = '#FFD700';
-                ctx.shadowBlur = 8 + pulse * 12;
                 ctx.globalAlpha = 0.08 + pulse * 0.06;
                 ctx.fillStyle = '#FFD700';
                 ctx.fillRect(cx - 4*u, cy - 4*u, 8*u, 8*u);

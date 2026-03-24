@@ -1,3 +1,5 @@
+import { play_mortar_launch, play_mortar_land, play_pool_tick } from '../audio/sound.js';
+
 const MORTAR_RANGE = 16;
 const MORTAR_RANGE_SQ = MORTAR_RANGE * MORTAR_RANGE;
 const BASE_COOLDOWN = 4000;
@@ -8,6 +10,7 @@ const POOL_DAMAGE_INTERVAL = 0.35;
 const BASE_POOL_RADIUS = 2.2;
 const POOL_RADIUS_PER_LEVEL = 0.35;
 const MAX_TRAIL_POINTS = 40;
+const MAX_POOLS = 30;
 
 export class PoisonMortar {
     constructor() {
@@ -123,6 +126,7 @@ export class PoisonMortar {
                         }
                     }
                 }
+                play_mortar_launch();
                 this.last_fire = now;
             }
         }
@@ -165,6 +169,11 @@ export class PoisonMortar {
             // Landed
             if (t >= 1) {
                 const pool_dur = POOL_DURATION * this.duration_mult;
+                // Cap pools to prevent unbounded growth
+                if (this.pools.length >= MAX_POOLS) {
+                    this.pools.shift(); // remove oldest pool
+                }
+                play_mortar_land();
                 this.pools.push({
                     x: p.target_x,
                     y: p.target_y,
@@ -210,6 +219,7 @@ export class PoisonMortar {
             // Damage enemies in pool
             if (pool.damage_accum >= POOL_DAMAGE_INTERVAL) {
                 pool.damage_accum -= POOL_DAMAGE_INTERVAL;
+                play_pool_tick();
                 const dmg = this.get_damage();
 
                 enemy_manager.query_radius(pool.x, pool.y, pool.radius, (e) => {
@@ -312,52 +322,42 @@ export class PoisonMortar {
                 ctx.fill();
             }
 
-            // ---- Outer glow halo ----
-            ctx.save();
-            ctx.shadowColor = 'rgba(0, 255, 50, 0.7)';
-            ctx.shadowBlur = cell_size * 0.7;
-
+            // ---- Outer glow halo (layered circles) ----
             const orb_r = cell_size * 0.32;
 
-            const glow_grad = ctx.createRadialGradient(
-                ground_px, orb_py, orb_r * 0.5,
-                ground_px, orb_py, orb_r * 2
-            );
-            glow_grad.addColorStop(0, 'rgba(0, 255, 50, 0.25)');
-            glow_grad.addColorStop(1, 'rgba(0, 255, 50, 0)');
-            ctx.fillStyle = glow_grad;
             ctx.beginPath();
             ctx.arc(ground_px, orb_py, orb_r * 2, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(0, 255, 50, 0.08)';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(ground_px, orb_py, orb_r * 1.2, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(0, 255, 50, 0.15)';
             ctx.fill();
 
-            // ---- Main orb with wobble ----
+            // ---- Main orb with wobble (layered circles) ----
             const wobble = Math.sin(p.elapsed * 12) * 0.12 + 1;
             const rx = orb_r * wobble;
             const ry = orb_r * (2 - wobble) * 0.52 + orb_r * 0.48;
+            const mr = Math.max(rx, ry);
 
-            const orb_grad = ctx.createRadialGradient(
-                ground_px - rx * 0.15, orb_py - ry * 0.15, 0,
-                ground_px, orb_py, Math.max(rx, ry)
-            );
-            orb_grad.addColorStop(0, 'rgba(180, 255, 140, 0.95)');
-            orb_grad.addColorStop(0.4, 'rgba(40, 220, 60, 0.9)');
-            orb_grad.addColorStop(0.8, 'rgba(0, 160, 40, 0.8)');
-            orb_grad.addColorStop(1, 'rgba(0, 100, 20, 0.5)');
-
-            ctx.fillStyle = orb_grad;
+            ctx.fillStyle = 'rgba(0, 100, 20, 0.5)';
             ctx.beginPath();
             ctx.ellipse(ground_px, orb_py, rx, ry, p.elapsed * 3, 0, Math.PI * 2);
             ctx.fill();
-
-            ctx.shadowBlur = 0;
+            ctx.fillStyle = 'rgba(0, 160, 40, 0.8)';
+            ctx.beginPath();
+            ctx.ellipse(ground_px, orb_py, rx * 0.75, ry * 0.75, p.elapsed * 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(40, 220, 60, 0.9)';
+            ctx.beginPath();
+            ctx.ellipse(ground_px, orb_py, rx * 0.4, ry * 0.4, p.elapsed * 3, 0, Math.PI * 2);
+            ctx.fill();
 
             // Inner highlight
             ctx.fillStyle = 'rgba(220, 255, 220, 0.45)';
             ctx.beginPath();
             ctx.arc(ground_px - orb_r * 0.2, orb_py - orb_r * 0.25, orb_r * 0.25, 0, Math.PI * 2);
             ctx.fill();
-
-            ctx.restore();
         }
     }
 

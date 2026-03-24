@@ -14,6 +14,7 @@ import { SoloAutopilot } from '../snake/solo_autopilot.js';
 import { Arena } from '../arena/arena.js';
 import { ZoneShrinker } from '../arena/zone_shrinker.js';
 import { Input } from '../input/input.js';
+import { play_eat_sound } from '../audio/sound.js';
 import { Camera } from '../survivors/camera.js';
 import { EnemyManager } from '../survivors/enemy_manager.js';
 import { SurvivorsRenderer } from '../survivors/survivors_renderer.js';
@@ -177,6 +178,14 @@ export class BattleRoyaleApp {
         this.paused = false;
         this.pause_start = 0;
 
+        // Performance overlay (F3)
+        this._perf_overlay = false;
+        this._perf_timings = {};
+        this._perf_smoothed = {};
+        this._perf_fps_samples = new Float64Array(60);
+        this._perf_fps_idx = 0;
+        this._perf_last_frame = 0;
+
         this._on_resize = () => this._handle_resize();
 
         this.register_states();
@@ -242,7 +251,7 @@ export class BattleRoyaleApp {
                     msg = `YOU WON! 20:00 — ${kills} kills — Press Space`;
                 }
                 self.ui_renderer.draw_overlay(
-                    self.renderer.ctx,
+                    self.renderer.hud_ctx || self.renderer.ctx,
                     msg,
                     self.renderer.logical_width,
                     self.renderer.logical_height
@@ -272,7 +281,7 @@ export class BattleRoyaleApp {
                     msg = `ELIMINATED — #${alive + 1} place — Press Space`;
                 }
                 self.ui_renderer.draw_overlay(
-                    self.renderer.ctx,
+                    self.renderer.hud_ctx || self.renderer.ctx,
                     msg,
                     self.renderer.logical_width,
                     self.renderer.logical_height
@@ -371,12 +380,16 @@ export class BattleRoyaleApp {
                     }
                     return;
                 }
-                // DEBUG MENU TEMPORARILY DISABLED
-                // if (this.mode === 'survivors' && action === 'debug_menu') {
-                //     this.vs_debug_menu_active = !this.vs_debug_menu_active;
-                //     this.vs_debug_menu_index = 0;
-                //     return;
-                // }
+                if (action === 'perf_overlay') {
+                    this._perf_overlay = !this._perf_overlay;
+                    return;
+                }
+                if (this.mode === 'survivors' && action === 'debug_menu') {
+                    // TEMP DISABLED: debug menu
+                    // this.vs_debug_menu_active = !this.vs_debug_menu_active;
+                    // this.vs_debug_menu_index = 0;
+                    return;
+                }
                 if (this.vs_debug_menu_active) {
                     const all_defs = [...VS_POWERUP_DEFS, ...VS_EVOLUTION_DEFS];
                     if (action === 'menu_up') {
@@ -689,6 +702,7 @@ export class BattleRoyaleApp {
     }
 
     update_survivors() {
+        if (this._perf_overlay) this._perf_timings = {};
         if (this.vs_level_up_active) return;
         if (this.vs_debug_menu_active) return;
 
@@ -722,77 +736,43 @@ export class BattleRoyaleApp {
         const vs_invuln_dur = VS_INVULN_DURATION * (1 + this.vs_powerups.chronofield * 0.25);
         const vs_immune = this.vs_invuln_start > 0 && now - this.vs_invuln_start < vs_invuln_dur;
         this.enemy_manager.excluded_region = this.enclosed_region;
-        this.enemy_manager.update(dt, snake, this.arena, this.particles, cell, this.damage_numbers, vs_immune);
+        this.enemy_manager.player_level = this.vs_level;
 
-        this.bullet_manager.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        this._perf_time('U:enemies', () => this.enemy_manager.update(dt, snake, this.arena, this.particles, cell, this.damage_numbers, vs_immune));
 
-        if (this.poison_mortar) {
-            this.poison_mortar.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
+        this._perf_time('U:bullets', () => this.bullet_manager.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers));
 
-        if (this.snake_nest) {
-            this.snake_nest.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
+        this._perf_time('U:weapons1', () => {
+            if (this.poison_mortar) this.poison_mortar.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.snake_nest) this.snake_nest.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.fang_barrage) this.fang_barrage.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.venom_nova) this.venom_nova.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.miasma) this.miasma.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        });
 
-        if (this.fang_barrage) {
-            this.fang_barrage.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
+        this._perf_time('U:weapons2', () => {
+            if (this.hydra_brood) this.hydra_brood.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.serpent_gatling) this.serpent_gatling.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.sidewinder_beam) this.sidewinder_beam.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.consumption_beam) this.consumption_beam.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.singularity_mortar) this.singularity_mortar.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        });
 
-        if (this.venom_nova) {
-            this.venom_nova.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
+        this._perf_time('U:weapons3', () => {
+            if (this.cobra_pit) this.cobra_pit.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.ancient_brood_pit) this.ancient_brood_pit.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.ricochet_fang) this.ricochet_fang.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.shatter_fang) this.shatter_fang.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.tongue_lash) this.tongue_lash.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.serpents_reckoning) this.serpents_reckoning.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        });
 
-        if (this.miasma) {
-            this.miasma.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
-
-        if (this.hydra_brood) {
-            this.hydra_brood.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
-
-        if (this.serpent_gatling) {
-            this.serpent_gatling.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
-
-        if (this.sidewinder_beam) {
-            this.sidewinder_beam.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
-
-        if (this.consumption_beam) {
-            this.consumption_beam.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
-
-        if (this.singularity_mortar) {
-            this.singularity_mortar.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
-
-        if (this.cobra_pit) {
-            this.cobra_pit.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
-
-        if (this.ancient_brood_pit) {
-            this.ancient_brood_pit.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
-
-        if (this.ricochet_fang) {
-            this.ricochet_fang.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
-
-        if (this.shatter_fang) {
-            this.shatter_fang.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
-
-        if (this.tongue_lash) {
-            this.tongue_lash.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
-
-        if (this.serpents_reckoning) {
-            this.serpents_reckoning.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
-        }
-
-        if (this.grey_snake) {
-            this.grey_snake.update(dt, snake);
-        }
+        this._perf_time('U:grey_snake', () => {
+            if (this.grey_snake) {
+                this.grey_snake.update(dt, snake);
+                this.grey_snake.check_encircled_by(snake);
+            }
+        });
 
         // Split dead splitter enemies into children
         this.enemy_manager.process_splits(this.particles, cell);
@@ -960,13 +940,16 @@ export class BattleRoyaleApp {
                 const hx = snake.head.x;
                 const hy = snake.head.y;
                 const r = this.vs_powerups.magnet;
+                let magnet_ate = false;
                 for (let i = this.arena.food.length - 1; i >= 0; i--) {
                     const f = this.arena.food[i];
                     if (Math.abs(f.x - hx) <= r && Math.abs(f.y - hy) <= r && (f.x !== hx || f.y !== hy)) {
                         this.arena.food.splice(i, 1);
                         snake.grow_pending++;
+                        magnet_ate = true;
                     }
                 }
+                if (magnet_ate) play_eat_sound();
             }
 
             const grow_after = snake.segments.length + snake.grow_pending;
@@ -974,7 +957,7 @@ export class BattleRoyaleApp {
             if (this.consumption_beam) this.consumption_beam.pending_xp = 0;
             const reckoning_xp = this.serpents_reckoning ? this.serpents_reckoning.pending_xp : 0;
             if (this.serpents_reckoning) this.serpents_reckoning.pending_xp = 0;
-            const gained = (grow_after - grow_before) + beam_xp + reckoning_xp;
+            const gained = ((grow_after - grow_before) + beam_xp + reckoning_xp) * 1.2;
             if (gained > 0) {
                 const gorger_lvl = this.vs_powerups.gorger;
                 if (gorger_lvl > 0) {
@@ -1152,6 +1135,7 @@ export class BattleRoyaleApp {
 
             if (this.green_food && snake.alive) {
                 if (snake.head.x === this.green_food.x && snake.head.y === this.green_food.y) {
+                    play_eat_sound();
                     const boost_duration = GREEN_BOOST_BASE_MS + GREEN_BOOST_SCALE_MS * this.normal_fruits_eaten;
                     this.green_food = null;
                     this.normal_fruits_eaten = 0;
@@ -1263,11 +1247,13 @@ export class BattleRoyaleApp {
     }
 
     render() {
+        // Clear HUD overlay each frame (survivors render_survivors_playing repopulates it)
+        this.renderer.clear_hud();
         this.fsm.render();
     }
 
     render_main_menu() {
-        const ctx = this.renderer.ctx;
+        const ctx = this.renderer.hud_ctx || this.renderer.ctx;
         const size = this.renderer.logical_size;
 
         ctx.fillStyle = '#000';
@@ -1326,7 +1312,7 @@ export class BattleRoyaleApp {
 
     render_countdown() {
         this.render_playing();
-        const ctx = this.renderer.ctx;
+        const ctx = this.renderer.hud_ctx || this.renderer.ctx;
         const w = this.renderer.logical_width;
         const h = this.renderer.logical_height;
         const elapsed = performance.now() - this.countdown_start;
@@ -1353,10 +1339,7 @@ export class BattleRoyaleApp {
         ctx.textBaseline = 'middle';
         ctx.font = `bold ${Math.round(80 * scale)}px monospace`;
         ctx.fillStyle = color;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 20;
         ctx.fillText(text, w / 2, h / 2);
-        ctx.shadowBlur = 0;
         ctx.restore();
     }
 
@@ -1408,11 +1391,12 @@ export class BattleRoyaleApp {
 
         this.particles.render(ctx);
 
+        const hud = this.renderer.hud_ctx || ctx;
         if (this.mode === 'solo') {
-            this.render_solo_hud(ctx, size);
+            this.render_solo_hud(hud, size);
         } else {
             this.hud_renderer.render(
-                ctx, this.arena, this.snakes, this.player_snake,
+                hud, this.arena, this.snakes, this.player_snake,
                 this.zone_shrinker ? this.zone_shrinker.get_time_until_shrink() : 0,
                 size
             );
@@ -1466,7 +1450,7 @@ export class BattleRoyaleApp {
     }
 
     render_pause_overlay() {
-        const ctx = this.renderer.ctx;
+        const ctx = this.renderer.hud_ctx || this.renderer.ctx;
         const w = this.renderer.logical_width;
         const h = this.renderer.logical_height;
 
@@ -1484,11 +1468,22 @@ export class BattleRoyaleApp {
         ctx.fillText('Press Space to resume', w / 2, h / 2 + 20);
     }
 
+    // Perf timing helper — only times when overlay is active (zero overhead otherwise)
+    _perf_time(label, fn) {
+        if (!this._perf_overlay) { fn(); return; }
+        const t0 = performance.now();
+        fn();
+        const elapsed = performance.now() - t0;
+        this._perf_timings[label] = (this._perf_timings[label] || 0) + elapsed;
+    }
+
     render_survivors_playing() {
         const ctx = this.renderer.ctx;
         const cell = this.renderer.cell_size;
         const w = this.renderer.logical_width;
         const h = this.renderer.logical_height;
+
+        // Don't reset — update timings were already recorded this frame
 
         this.renderer.clear();
 
@@ -1513,169 +1508,129 @@ export class BattleRoyaleApp {
         ctx.save();
         this.camera.apply_transform(ctx);
 
-        this.survivors_renderer.render_arena_border(ctx, VS_ARENA_SIZE, cell);
+        this._perf_time('arena+food', () => {
+            this.survivors_renderer.render_arena_border(ctx, VS_ARENA_SIZE, cell);
+            this.survivors_renderer.render_food(ctx, this.arena.food, cell, this.camera);
+            this.survivors_renderer.render_hearts(ctx, this.enemy_manager.heart_drops, cell, this.camera);
+        });
 
-        this.survivors_renderer.render_food(ctx, this.arena.food, cell, this.camera);
-        this.survivors_renderer.render_hearts(ctx, this.enemy_manager.heart_drops, cell, this.camera);
-
-        // Render chests on the ground
         if (this.chest_lottery) {
-            this.chest_lottery.render_chests(ctx, cell, this.camera);
+            this._perf_time('chests', () => this.chest_lottery.render_chests(ctx, cell, this.camera));
         }
 
-        if (this.poison_mortar) {
-            this.poison_mortar.render_pools(ctx, cell);
-        }
+        this._perf_time('pools+wells', () => {
+            if (this.poison_mortar) this.poison_mortar.render_pools(ctx, cell);
+            if (this.singularity_mortar) this.singularity_mortar.render_wells(ctx, cell);
+        });
 
-        if (this.singularity_mortar) {
-            this.singularity_mortar.render_wells(ctx, cell);
-        }
-
-        if (this.snake_nest) {
-            this.snake_nest.render_nests(ctx, cell);
-        }
-
-        if (this.hydra_brood) {
-            this.hydra_brood.render_nests(ctx, cell);
-        }
-
-        if (this.cobra_pit) {
-            this.cobra_pit.render_pits(ctx, cell);
-        }
-
-        if (this.ancient_brood_pit) {
-            this.ancient_brood_pit.render_pits(ctx, cell);
-        }
+        this._perf_time('nests+pits', () => {
+            if (this.snake_nest) this.snake_nest.render_nests(ctx, cell);
+            if (this.hydra_brood) this.hydra_brood.render_nests(ctx, cell);
+            if (this.cobra_pit) this.cobra_pit.render_pits(ctx, cell);
+            if (this.ancient_brood_pit) this.ancient_brood_pit.render_pits(ctx, cell);
+        });
 
         const cox = this.camera.half_view_x - this.camera.x;
         const coy = this.camera.half_view_y - this.camera.y;
 
         if (this.grey_snake) {
-            this.survivors_renderer.render_grey_snakes(ctx, this.grey_snake, cell, cox, coy);
+            this._perf_time('grey_snake', () => this.survivors_renderer.render_grey_snakes(ctx, this.grey_snake, cell, cox, coy));
         }
 
-        this.survivors_renderer.render_enemies(ctx, this.enemy_manager.enemies, cell);
+        this._perf_time('enemies', () => this.survivors_renderer.render_enemies(ctx, this.enemy_manager.enemies, cell, this.camera));
 
         if (this.bullet_manager) {
-            this.survivors_renderer.render_bullets(ctx, this.bullet_manager.bullets, cell);
+            this._perf_time('bullets', () => this.survivors_renderer.render_bullets(ctx, this.bullet_manager.bullets, cell, this.camera));
         }
 
-        if (this.player_snake && this.player_snake.alive) {
-            let color = '#fff';
-            const vs_invuln_dur = VS_INVULN_DURATION * (1 + this.vs_powerups.chronofield * 0.25);
-            const vs_immune = this.vs_invuln_start > 0 && now - this.vs_invuln_start < vs_invuln_dur;
-            if (vs_immune) {
-                const pulse = (Math.sin(now / 200) + 1) / 2;
-                const g = Math.round(255 - pulse * 55);
-                color = `rgb(${Math.round(255 - pulse * 255)}, ${g}, 255)`;
-            } else if (this.enemy_manager && this.enemy_manager.player_i_frames > 0) {
-                color = Math.floor(now / 80) % 2 === 0 ? '#f44' : '#fff';
+        this._perf_time('player', () => {
+            if (this.player_snake && this.player_snake.alive) {
+                let color = '#fff';
+                const vs_invuln_dur = VS_INVULN_DURATION * (1 + this.vs_powerups.chronofield * 0.25);
+                const vs_immune = this.vs_invuln_start > 0 && now - this.vs_invuln_start < vs_invuln_dur;
+                if (vs_immune) {
+                    const pulse = (Math.sin(now / 200) + 1) / 2;
+                    const g = Math.round(255 - pulse * 55);
+                    color = `rgb(${Math.round(255 - pulse * 255)}, ${g}, 255)`;
+                } else if (this.enemy_manager && this.enemy_manager.player_i_frames > 0) {
+                    color = Math.floor(now / 80) % 2 === 0 ? '#f44' : '#fff';
+                }
+                this.snake_renderer.render(ctx, this.player_snake.segments, cell, t, color, 1.0, cox, coy);
             }
-            this.snake_renderer.render(ctx, this.player_snake.segments, cell, t, color, 1.0, cox, coy);
-        }
+        });
 
-        if (this.poison_mortar) {
-            this.poison_mortar.render_projectiles(ctx, cell);
-        }
+        this._perf_time('projectiles', () => {
+            if (this.poison_mortar) this.poison_mortar.render_projectiles(ctx, cell);
+            if (this.singularity_mortar) this.singularity_mortar.render_projectiles(ctx, cell);
+            if (this.snake_nest) { this.snake_nest.render_projectiles(ctx, cell); this.snake_nest.render_mini_snakes(ctx, cell); }
+            if (this.hydra_brood) { this.hydra_brood.render_projectiles(ctx, cell); this.hydra_brood.render_snakes(ctx, cell); }
+        });
 
-        if (this.singularity_mortar) {
-            this.singularity_mortar.render_projectiles(ctx, cell);
-        }
+        this._perf_time('fangs', () => {
+            if (this.fang_barrage) this.fang_barrage.render(ctx, cell);
+            if (this.serpent_gatling) this.serpent_gatling.render(ctx, cell);
+            if (this.ricochet_fang) this.ricochet_fang.render(ctx, cell);
+            if (this.shatter_fang) this.shatter_fang.render(ctx, cell);
+        });
 
-        if (this.snake_nest) {
-            this.snake_nest.render_projectiles(ctx, cell);
-            this.snake_nest.render_mini_snakes(ctx, cell);
-        }
+        this._perf_time('cobras', () => {
+            if (this.cobra_pit) { this.cobra_pit.render_cobras(ctx, cell); this.cobra_pit.render_spits(ctx, cell); this.cobra_pit.render_projectiles(ctx, cell); }
+            if (this.ancient_brood_pit) { this.ancient_brood_pit.render_cobras(ctx, cell); this.ancient_brood_pit.render_spits(ctx, cell); this.ancient_brood_pit.render_projectiles(ctx, cell); }
+        });
 
-        if (this.hydra_brood) {
-            this.hydra_brood.render_projectiles(ctx, cell);
-            this.hydra_brood.render_snakes(ctx, cell);
-        }
+        this._perf_time('beams', () => {
+            if (this.sidewinder_beam) this.sidewinder_beam.render_with_head(ctx, cell, interp_hx, interp_hy);
+            if (this.consumption_beam) this.consumption_beam.render_with_head(ctx, cell, interp_hx, interp_hy);
+            if (this.tongue_lash) this.tongue_lash.render(ctx, cell);
+            if (this.serpents_reckoning) this.serpents_reckoning.render_with_head(ctx, cell, interp_hx, interp_hy);
+        });
 
-        if (this.fang_barrage) {
-            this.fang_barrage.render(ctx, cell);
-        }
+        this._perf_time('nova+miasma', () => {
+            if (this.venom_nova) this.venom_nova.render(ctx, cell);
+            if (this.miasma) this.miasma.render(ctx, cell, interp_hx, interp_hy);
+        });
 
-        if (this.serpent_gatling) {
-            this.serpent_gatling.render(ctx, cell);
-        }
-
-        if (this.ricochet_fang) {
-            this.ricochet_fang.render(ctx, cell);
-        }
-
-        if (this.shatter_fang) {
-            this.shatter_fang.render(ctx, cell);
-        }
-
-        if (this.cobra_pit) {
-            this.cobra_pit.render_cobras(ctx, cell);
-            this.cobra_pit.render_spits(ctx, cell);
-            this.cobra_pit.render_projectiles(ctx, cell);
-        }
-
-        if (this.ancient_brood_pit) {
-            this.ancient_brood_pit.render_cobras(ctx, cell);
-            this.ancient_brood_pit.render_spits(ctx, cell);
-            this.ancient_brood_pit.render_projectiles(ctx, cell);
-        }
-
-        if (this.sidewinder_beam) {
-            this.sidewinder_beam.render_with_head(ctx, cell, interp_hx, interp_hy);
-        }
-
-        if (this.consumption_beam) {
-            this.consumption_beam.render_with_head(ctx, cell, interp_hx, interp_hy);
-        }
-
-        if (this.tongue_lash) {
-            this.tongue_lash.render(ctx, cell);
-        }
-
-        if (this.serpents_reckoning) {
-            this.serpents_reckoning.render_with_head(ctx, cell, interp_hx, interp_hy);
-        }
-
-        if (this.venom_nova) {
-            this.venom_nova.render(ctx, cell);
-        }
-
-        if (this.miasma) {
-            this.miasma.render(ctx, cell, interp_hx, interp_hy);
-        }
-
-        this.particles.render(ctx);
-
-        this.damage_numbers.render(ctx, cell);
+        this._perf_time('particles', () => this.particles.render(ctx));
 
         ctx.restore();
 
-        this.render_survivors_hud(ctx, w, h);
+        // --- HUD / text / overlays render to hud_ctx at native DPR for crisp text ---
+        const hctx = this.renderer.hud_ctx || ctx;
+
+        // Damage numbers on HUD layer (text-heavy)
+        this._perf_time('dmg_numbers', () => {
+            hctx.save();
+            this.camera.apply_transform(hctx);
+            this.damage_numbers.render(hctx, cell);
+            hctx.restore();
+        });
+
+        this._perf_time('HUD', () => this.render_survivors_hud(hctx, w, h));
 
         if (this.player_snake && this.enemy_manager) {
-            this.survivors_renderer.render_minimap(
-                ctx, this.player_snake, this.enemy_manager.enemies,
+            this._perf_time('minimap', () => this.survivors_renderer.render_minimap(
+                hctx, this.player_snake, this.enemy_manager.enemies,
                 VS_ARENA_SIZE, w, h,
                 this.chest_lottery ? this.chest_lottery.chests : null,
                 this.grey_snake
-            );
+            ));
         }
 
         if (this.vs_level_up_active) {
-            this.ui_renderer.draw_item_picker(ctx, this.vs_level_up_choices, this.vs_level_up_index, w, h);
+            this.ui_renderer.draw_item_picker(hctx, this.vs_level_up_choices, this.vs_level_up_index, w, h);
         }
 
         // Lottery animation overlay
         if (this.vs_lottery_active && this.chest_lottery) {
-            this.chest_lottery.render_lottery(ctx, cell, w, h);
+            this.chest_lottery.render_lottery(hctx, cell, w, h);
         }
 
         if (this.vs_debug_menu_active) {
-            this.render_debug_menu(ctx, w, h);
+            this.render_debug_menu(hctx, w, h);
         }
 
         if (this.vs_evo_menu_active) {
-            this.render_evolution_menu(ctx, w, h);
+            this.render_evolution_menu(hctx, w, h);
         }
 
         // Self-collision warning overlay
@@ -1683,18 +1638,145 @@ export class BattleRoyaleApp {
             const elapsed = performance.now() - this.vs_self_collision_freeze;
             const flash = Math.sin(elapsed * 0.015) > 0;
             if (flash) {
-                ctx.save();
-                ctx.globalAlpha = 0.25;
-                ctx.fillStyle = '#ff0000';
-                ctx.fillRect(0, 0, w, h);
-                ctx.restore();
+                hctx.save();
+                hctx.globalAlpha = 0.25;
+                hctx.fillStyle = '#ff0000';
+                hctx.fillRect(0, 0, w, h);
+                hctx.restore();
             }
         }
 
         // Resume countdown overlay
         if (this.vs_resume_countdown_start > 0) {
-            this.render_resume_countdown(ctx, w, h);
+            this.render_resume_countdown(hctx, w, h);
         }
+
+        // Performance overlay (F3)
+        if (this._perf_overlay) {
+            this._render_perf_overlay(hctx, w, h, now);
+        }
+    }
+
+    _render_perf_overlay(ctx, w, h, now) {
+        // FPS tracking
+        if (this._perf_last_frame > 0) {
+            const frame_ms = now - this._perf_last_frame;
+            this._perf_fps_samples[this._perf_fps_idx % 60] = frame_ms;
+            this._perf_fps_idx++;
+        }
+        this._perf_last_frame = now;
+
+        const count = Math.min(this._perf_fps_idx, 60);
+        let sum = 0;
+        for (let i = 0; i < count; i++) sum += this._perf_fps_samples[i];
+        const avg_ms = count > 0 ? sum / count : 16.67;
+        const fps = 1000 / avg_ms;
+
+        // Smooth timings with exponential moving average
+        const alpha = 0.15;
+        for (const key in this._perf_timings) {
+            if (key in this._perf_smoothed) {
+                this._perf_smoothed[key] = this._perf_smoothed[key] * (1 - alpha) + this._perf_timings[key] * alpha;
+            } else {
+                this._perf_smoothed[key] = this._perf_timings[key];
+            }
+        }
+
+        // Sort by cost descending
+        const entries = Object.entries(this._perf_smoothed)
+            .filter(([, v]) => v > 0.01)
+            .sort((a, b) => b[1] - a[1]);
+
+        let total_render = 0;
+        for (const [, v] of entries) total_render += v;
+
+        // Draw overlay
+        const pad = 8;
+        const line_h = 16;
+        const box_w = 340;
+        const box_h = (entries.length + 7) * line_h + pad * 2;
+        const bx = pad;
+        const by = pad;
+
+        ctx.save();
+        ctx.globalAlpha = 0.85;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(bx, by, box_w, box_h);
+        ctx.globalAlpha = 1;
+        ctx.font = '12px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+
+        let y = by + pad;
+
+        // FPS + frame time
+        const fps_color = fps >= 55 ? '#0f0' : fps >= 30 ? '#ff0' : '#f44';
+        ctx.fillStyle = fps_color;
+        ctx.fillText(`FPS: ${fps.toFixed(0)}  (${avg_ms.toFixed(1)}ms)`, bx + pad, y);
+        y += line_h;
+
+        // Show real update/render totals from game loop
+        const gl = this.game_loop;
+        const real_update = gl.perf_update_ms;
+        const real_render = gl.perf_render_ms;
+        const real_total = gl.perf_total_ms;
+        const unmeasured = real_total - total_render;
+
+        ctx.fillStyle = '#aaa';
+        ctx.fillText(`Update: ${real_update.toFixed(1)}ms  Render: ${real_render.toFixed(1)}ms  JS total: ${real_total.toFixed(1)}ms`, bx + pad, y);
+        y += line_h;
+
+        if (unmeasured > 1) {
+            ctx.fillStyle = '#f88';
+            ctx.fillText(`Unmeasured: ${unmeasured.toFixed(1)}ms  (${avg_ms > 0 ? ((real_total / avg_ms) * 100).toFixed(0) : '?'}% of frame)`, bx + pad, y);
+        } else {
+            ctx.fillStyle = '#888';
+            ctx.fillText(`GPU/browser overhead: ${(avg_ms - real_total).toFixed(1)}ms`, bx + pad, y);
+        }
+        y += line_h;
+
+        // Entity counts + canvas info
+        const enemies = this.enemy_manager ? this.enemy_manager.enemies.filter(e => e.alive).length : 0;
+        const food = this.arena ? this.arena.food.length : 0;
+        const segs = this.player_snake ? this.player_snake.segments.length : 0;
+        const game_dpr = this.renderer._force_dpr || 1;
+        const native_dpr = window.devicePixelRatio || 1;
+        const cw = this.renderer.canvas.width;
+        const ch = this.renderer.canvas.height;
+        ctx.fillStyle = '#888';
+        ctx.fillText(`Enemies: ${enemies}  Food: ${food}  Ptcl: ${this.particles._count}  Segs: ${segs}`, bx + pad, y);
+        y += line_h;
+        ctx.fillText(`Game: ${cw}x${ch} DPR:${game_dpr.toFixed(1)}  HUD DPR:${native_dpr.toFixed(1)}`, bx + pad, y);
+        y += line_h + 4;
+
+        // Bar chart of timings
+        const max_ms = Math.max(1, ...entries.map(e => e[1]));
+        const bar_max_w = box_w - 130;
+
+        for (const [label, ms] of entries) {
+            const bar_w = (ms / max_ms) * bar_max_w;
+            const pct = total_render > 0 ? (ms / total_render * 100) : 0;
+
+            // Color by severity
+            const bar_color = ms > 3 ? '#f44' : ms > 1 ? '#ff0' : '#0f0';
+            ctx.fillStyle = bar_color;
+            ctx.fillRect(bx + pad, y + 2, bar_w, line_h - 4);
+
+            ctx.fillStyle = '#fff';
+            ctx.fillText(`${label}`, bx + pad + 2, y);
+
+            ctx.fillStyle = '#ccc';
+            ctx.textAlign = 'right';
+            ctx.fillText(`${ms.toFixed(2)}ms ${pct.toFixed(0)}%`, bx + box_w - pad, y);
+            ctx.textAlign = 'left';
+
+            y += line_h;
+        }
+
+        ctx.fillStyle = '#555';
+        ctx.fillText('F3 to close', bx + pad, y + 4);
+
+        ctx.restore();
     }
 
     render_resume_countdown(ctx, w, h) {
@@ -1719,10 +1801,7 @@ export class BattleRoyaleApp {
         ctx.textBaseline = 'middle';
         ctx.font = `bold ${Math.round(80 * scale)}px monospace`;
         ctx.fillStyle = color;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 20;
         ctx.fillText(text, w / 2, h / 2);
-        ctx.shadowBlur = 0;
         ctx.restore();
     }
 
@@ -2456,7 +2535,8 @@ export class BattleRoyaleApp {
                 }
             }
 
-            this.enemy_manager.enemies = this.enemy_manager.enemies.filter(e => e.alive);
+            // In-place compaction
+            { let w = 0; const arr = this.enemy_manager.enemies; for (let r = 0; r < arr.length; r++) { if (arr[r].alive) arr[w++] = arr[r]; } arr.length = w; }
         }
     }
 

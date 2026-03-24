@@ -2,10 +2,13 @@ import { Enemy } from './enemy.js';
 import { SpatialGrid } from './spatial_grid.js';
 
 const MAX_ENEMIES = 400;
+const MAX_HEARTS = 125;
+const MAX_FOOD = 1250;
 
 export class EnemyManager {
     constructor(arena_size) {
         this.arena_size = arena_size;
+        this._player_map = new Map(); // reusable map for collision: numeric key -> segment index
         this.enemies = [];
         this.spawn_accum = 0;
         this.splitter_accum = 0;
@@ -18,6 +21,7 @@ export class EnemyManager {
         this.boss_deaths = []; // { x, y } positions of dead bosses for chest spawning
         this.tail_cuts = []; // { x, y, count } for VFX
         this.heart_drops = []; // { x, y } red hearts that restore HP
+        this.player_level = 1;
         this.grid = new SpatialGrid(arena_size, 4);
     }
 
@@ -27,11 +31,12 @@ export class EnemyManager {
 
         const t = Math.min(mins / 20, 1); // 0..1 over 20 minutes
         const fast = Math.pow(t, 0.6);    // ramps up quicker early/mid-game
+        const level_scale = 1 + (this.player_level - 1) * 0.05; // +5% HP per level
         return {
             spawn_interval: Math.max(300, 2000 - fast * 1700),
             spawn_count: Math.floor(2 + fast * 13),
             speed: 1.5 + fast * 6,
-            hp: (1 + Math.floor(t * 26)) * 100,
+            hp: Math.round((1 + Math.floor(t * 26)) * 100 * level_scale),
             length: Math.min(9, 1 + Math.floor(t * 8)),
         };
     }
@@ -95,37 +100,46 @@ export class EnemyManager {
         }
 
         // Collision: grid-cell overlap between enemy segments and player segments
+        // Build a Map of player segment positions → segment index (O(player_len) once)
+        // Then check each enemy segment against it (O(1) per lookup)
+        const pmap = this._player_map;
+        pmap.clear();
+        const start_si = player_immune ? 1 : 0;
+        for (let si = start_si; si < player_snake.segments.length; si++) {
+            const seg = player_snake.segments[si];
+            const key = seg.x * 10000 + seg.y;
+            if (!pmap.has(key)) pmap.set(key, si);
+        }
+
         if (player_immune) {
             // Still let player body damage enemies, but skip all player damage
             for (const e of this.enemies) {
                 if (!e.alive) continue;
                 for (let ei = 0; ei < e.segments.length; ei++) {
                     const eseg = e.segments[ei];
-                    for (let si = 1; si < player_snake.segments.length; si++) {
-                        const pseg = player_snake.segments[si];
-                        if (eseg.x === pseg.x && eseg.y === pseg.y) {
-                            const dead = e.take_damage();
-                            if (damage_numbers) {
-                                damage_numbers.emit(e.x, e.y - e.radius, 125, false);
-                            }
-                            if (dead) {
-                                const fx = e.segments[0].x;
-                                const fy = e.segments[0].y;
-                                if (fx >= 0 && fx < this.arena_size && fy >= 0 && fy < this.arena_size) {
-                                    arena.food.push({ x: fx, y: fy });
-                                    this._try_drop_heart(fx, fy);
-                                }
-                                this.total_kills++;
-                                if (e.is_boss) {
-                                    e._boss_death_tracked = true;
-                                    this.boss_deaths.push({ x: fx, y: fy });
-                                }
-                                if (particles) {
-                                    particles.emit(e.x * cell_size, e.y * cell_size, e.is_boss ? 20 : 8, e.color, e.is_boss ? 5 : 3);
-                                }
-                            }
-                            break;
+                    const key = eseg.x * 10000 + eseg.y;
+                    if (pmap.has(key)) {
+                        const dead = e.take_damage();
+                        if (damage_numbers) {
+                            damage_numbers.emit(e.x, e.y - e.radius, 125, false);
                         }
+                        if (dead) {
+                            const fx = e.segments[0].x;
+                            const fy = e.segments[0].y;
+                            if (fx >= 0 && fx < this.arena_size && fy >= 0 && fy < this.arena_size) {
+                                arena.food.push({ x: fx, y: fy });
+                                this._try_drop_heart(fx, fy);
+                            }
+                            this.total_kills++;
+                            if (e.is_boss) {
+                                e._boss_death_tracked = true;
+                                this.boss_deaths.push({ x: fx, y: fy });
+                            }
+                            if (particles) {
+                                particles.emit(e.x * cell_size, e.y * cell_size, e.is_boss ? 20 : 8, e.color, e.is_boss ? 5 : 3);
+                            }
+                        }
+                        break;
                     }
                 }
             }
@@ -137,111 +151,118 @@ export class EnemyManager {
             let hit = false;
             for (let ei = 0; ei < e.segments.length && !hit; ei++) {
                 const eseg = e.segments[ei];
-                for (let si = 0; si < player_snake.segments.length; si++) {
-                    const pseg = player_snake.segments[si];
-                    if (eseg.x === pseg.x && eseg.y === pseg.y) {
-                        if (si === 0) {
-                            // Boss or normal hitting player head: damage player
-                            if (!this.player_i_frames) {
-                                this.player_hp--;
-                                this.player_i_frames = 30;
-                                if (particles) {
-                                    particles.emit((pseg.x + 0.5) * cell_size, (pseg.y + 0.5) * cell_size, 6, '#f00', 3);
-                                }
-                            }
-                        } else if (e.is_boss && ei === 0) {
-                            // Boss head hitting player body: CUT the tail
-                            const cut_count = player_snake.segments.length - si;
-                            if (cut_count > 0 && player_snake.segments.length > 3) {
-                                // Emit particles at cut segments
-                                for (let ci = si; ci < player_snake.segments.length; ci++) {
-                                    const cseg = player_snake.segments[ci];
-                                    if (particles && Math.random() < 0.5) {
-                                        particles.emit((cseg.x + 0.5) * cell_size, (cseg.y + 0.5) * cell_size, 4, '#ff8800', 2);
-                                    }
-                                }
-                                // Keep at least 3 segments
-                                const keep = Math.max(3, si);
-                                const actually_cut = player_snake.segments.length - keep;
-                                if (actually_cut > 0) {
-                                    player_snake.segments.splice(keep);
-                                    player_snake.grow_pending = 0;
-                                    this.tail_cuts.push({ x: pseg.x, y: pseg.y, count: actually_cut });
-                                    if (damage_numbers) {
-                                        damage_numbers.emit(pseg.x + 0.5, pseg.y, actually_cut, true);
-                                    }
-                                }
-                            }
-                        } else {
-                            // Normal enemy or boss body hitting player body: enemy takes damage
-                            const dead = e.take_damage();
-                            if (damage_numbers) {
-                                damage_numbers.emit(e.x, e.y - e.radius, 125, false);
-                            }
-                            if (dead) {
-                                const fx = e.segments[0].x;
-                                const fy = e.segments[0].y;
-                                if (fx >= 0 && fx < this.arena_size && fy >= 0 && fy < this.arena_size) {
-                                    arena.food.push({ x: fx, y: fy });
-                                    this._try_drop_heart(fx, fy);
-                                }
-                                this.total_kills++;
-                                if (e.is_boss) {
-                                    e._boss_death_tracked = true;
-                                    this.boss_deaths.push({ x: fx, y: fy });
-                                }
-                                if (particles) {
-                                    particles.emit(e.x * cell_size, e.y * cell_size, e.is_boss ? 20 : 8, e.color, e.is_boss ? 5 : 3);
-                                }
+                const key = eseg.x * 10000 + eseg.y;
+                if (!pmap.has(key)) continue;
+                const si = pmap.get(key);
+                const pseg = player_snake.segments[si];
+
+                if (si === 0) {
+                    // Boss or normal hitting player head: damage player
+                    if (!this.player_i_frames) {
+                        this.player_hp--;
+                        this.player_i_frames = 30;
+                        if (particles) {
+                            particles.emit((pseg.x + 0.5) * cell_size, (pseg.y + 0.5) * cell_size, 6, '#f00', 3);
+                        }
+                    }
+                } else if (e.is_boss && ei === 0) {
+                    // Boss head hitting player body: CUT the tail
+                    const cut_count = player_snake.segments.length - si;
+                    if (cut_count > 0 && player_snake.segments.length > 3) {
+                        for (let ci = si; ci < player_snake.segments.length; ci++) {
+                            const cseg = player_snake.segments[ci];
+                            if (particles && Math.random() < 0.5) {
+                                particles.emit((cseg.x + 0.5) * cell_size, (cseg.y + 0.5) * cell_size, 4, '#ff8800', 2);
                             }
                         }
-                        hit = true;
-                        break;
+                        const keep = Math.max(3, si);
+                        const actually_cut = player_snake.segments.length - keep;
+                        if (actually_cut > 0) {
+                            player_snake.segments.splice(keep);
+                            player_snake.grow_pending = 0;
+                            this.tail_cuts.push({ x: pseg.x, y: pseg.y, count: actually_cut });
+                            if (damage_numbers) {
+                                damage_numbers.emit(pseg.x + 0.5, pseg.y, actually_cut, true);
+                            }
+                        }
+                    }
+                } else {
+                    // Normal enemy or boss body hitting player body: enemy takes damage
+                    const dead = e.take_damage();
+                    if (damage_numbers) {
+                        damage_numbers.emit(e.x, e.y - e.radius, 125, false);
+                    }
+                    if (dead) {
+                        const fx = e.segments[0].x;
+                        const fy = e.segments[0].y;
+                        if (fx >= 0 && fx < this.arena_size && fy >= 0 && fy < this.arena_size) {
+                            arena.food.push({ x: fx, y: fy });
+                            this._try_drop_heart(fx, fy);
+                        }
+                        this.total_kills++;
+                        if (e.is_boss) {
+                            e._boss_death_tracked = true;
+                            this.boss_deaths.push({ x: fx, y: fy });
+                        }
+                        if (particles) {
+                            particles.emit(e.x * cell_size, e.y * cell_size, e.is_boss ? 20 : 8, e.color, e.is_boss ? 5 : 3);
+                        }
                     }
                 }
+                hit = true;
             }
         }
 
         if (this.player_i_frames > 0) this.player_i_frames--;
 
-        this.enemies = this.enemies.filter(e => {
-            if (!e.alive) {
-                // Track boss deaths from weapon kills (body collision deaths already tracked above)
-                if (e.is_boss && !e._boss_death_tracked) {
-                    e._boss_death_tracked = true;
-                    const fx = e.segments[0].x;
-                    const fy = e.segments[0].y;
-                    this.boss_deaths.push({ x: fx, y: fy });
-                }
-                return false;
-            }
-            const dx = e.x - tx;
-            const dy = e.y - ty;
-            const dist_sq = dx * dx + dy * dy;
-            if (dist_sq >= 900) {
-                if (e.is_boss) {
-                    // Teleport boss back near player instead of despawning
-                    const angle = Math.random() * Math.PI * 2;
-                    const dist = 14 + Math.random() * 4;
-                    const nx = Math.round(tx + Math.cos(angle) * dist);
-                    const ny = Math.round(ty + Math.sin(angle) * dist);
-                    const gx = Math.max(1, Math.min(this.arena_size - 2, nx));
-                    const gy = Math.max(1, Math.min(this.arena_size - 2, ny));
-                    for (const seg of e.segments) {
-                        seg.prev_x = gx;
-                        seg.prev_y = gy;
-                        seg.x = gx;
-                        seg.y = gy;
+        // In-place compaction — avoids allocating a new array every frame
+        {
+            let w = 0;
+            for (let r = 0; r < this.enemies.length; r++) {
+                const e = this.enemies[r];
+                if (!e.alive) {
+                    if (e.is_boss && !e._boss_death_tracked) {
+                        e._boss_death_tracked = true;
+                        const fx = e.segments[0].x;
+                        const fy = e.segments[0].y;
+                        this.boss_deaths.push({ x: fx, y: fy });
                     }
-                    e.x = gx + 0.5;
-                    e.y = gy + 0.5;
-                    e.last_tick_time = performance.now();
-                    return true;
+                    continue;
                 }
-                return false;
+                const dx = e.x - tx;
+                const dy = e.y - ty;
+                const dist_sq = dx * dx + dy * dy;
+                if (dist_sq >= 900) {
+                    if (e.is_boss) {
+                        // Teleport boss back near player instead of despawning
+                        const angle = Math.random() * Math.PI * 2;
+                        const dist = 14 + Math.random() * 4;
+                        const nx = Math.round(tx + Math.cos(angle) * dist);
+                        const ny = Math.round(ty + Math.sin(angle) * dist);
+                        const gx = Math.max(1, Math.min(this.arena_size - 2, nx));
+                        const gy = Math.max(1, Math.min(this.arena_size - 2, ny));
+                        for (const seg of e.segments) {
+                            seg.prev_x = gx;
+                            seg.prev_y = gy;
+                            seg.x = gx;
+                            seg.y = gy;
+                        }
+                        e.x = gx + 0.5;
+                        e.y = gy + 0.5;
+                        e.last_tick_time = performance.now();
+                        this.enemies[w++] = e;
+                    }
+                    continue;
+                }
+                this.enemies[w++] = e;
             }
-            return true;
-        });
+            this.enemies.length = w;
+        }
+
+        // Cap food to prevent unbounded growth in late game
+        if (arena.food.length > MAX_FOOD) {
+            arena.food.length = MAX_FOOD;
+        }
 
         // Rebuild spatial grid after all position changes and filtering
         this.grid.rebuild(this.enemies);
@@ -265,7 +286,7 @@ export class EnemyManager {
     }
 
     _try_drop_heart(x, y) {
-        if (Math.random() < 0.02) {
+        if (Math.random() < 0.02 && this.heart_drops.length < MAX_HEARTS) {
             this.heart_drops.push({ x, y });
         }
     }
@@ -345,7 +366,8 @@ export class EnemyManager {
             const key = gx + ',' + gy;
             if (!occupied.has(key) && !(this.excluded_region && this.excluded_region.has(key))) {
                 // Gen 1: big, slow, tanky, length 5
-                this.enemies.push(new Enemy(x, y, 1.2, 600, 5, 1));
+                const ls = 1 + (this.player_level - 1) * 0.05;
+                this.enemies.push(new Enemy(x, y, 1.2, Math.round(600 * ls), 5, 1));
                 return;
             }
         }
@@ -376,7 +398,8 @@ export class EnemyManager {
             const key = gx + ',' + gy;
             if (!occupied.has(key) && !(this.excluded_region && this.excluded_region.has(key))) {
                 // Boss: slow, very tanky, 8 segments long
-                this.enemies.push(new Enemy(x, y, 1.0, 5000, 8, 0, true));
+                const ls = 1 + (this.player_level - 1) * 0.05;
+                this.enemies.push(new Enemy(x, y, 1.0, Math.round(5000 * ls), 8, 0, true));
                 return;
             }
         }
@@ -390,11 +413,12 @@ export class EnemyManager {
             e._split_done = true; // prevent re-splitting on subsequent frames
 
             const next_gen = e.splitter_gen + 1;
+            const ls = 1 + (this.player_level - 1) * 0.05;
             let hp, length, speed;
             if (next_gen === 2) {
-                hp = 300; length = 3; speed = 1.5;
+                hp = Math.round(300 * ls); length = 3; speed = 1.5;
             } else {
-                hp = 150; length = 1; speed = 1.8;
+                hp = Math.round(150 * ls); length = 1; speed = 1.8;
             }
 
             // Spawn 2 children offset from the parent's death position

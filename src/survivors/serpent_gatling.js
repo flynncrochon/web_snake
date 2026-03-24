@@ -1,3 +1,5 @@
+import { play_gatling_fire, play_gatling_hit } from '../audio/sound.js';
+
 const GATLING_RANGE = 11;
 const GATLING_RANGE_SQ = GATLING_RANGE * GATLING_RANGE;
 const GATLING_COOLDOWN = 180;      // extremely rapid fire
@@ -76,6 +78,7 @@ export class SerpentGatling {
                         hit_ids: new Set(),
                     });
                 }
+                play_gatling_fire();
                 this.last_fire = now;
             }
         }
@@ -132,6 +135,7 @@ export class SerpentGatling {
                 if (Math.sqrt(dx * dx + dy * dy) < GATLING_RADIUS + e.radius) {
                     f.hit_ids.add(e);
                     f.pierce_count++;
+                    play_gatling_hit();
 
                     // Damage falls off per pierce: 100%, 70%, 50%
                     const pierce_mult = f.pierce_count === 1 ? 1.0 : f.pierce_count === 2 ? 0.7 : 0.5;
@@ -175,7 +179,12 @@ export class SerpentGatling {
             });
         }
 
-        this.fangs = this.fangs.filter(f => f.alive);
+        // In-place compaction
+        let w = 0;
+        for (let r = 0; r < this.fangs.length; r++) {
+            if (this.fangs[r].alive) this.fangs[w++] = this.fangs[r];
+        }
+        this.fangs.length = w;
     }
 
     render(ctx, cell_size) {
@@ -225,44 +234,39 @@ export class SerpentGatling {
             ctx.translate(px, py);
             ctx.rotate(angle);
 
-            // Orange-green glow
-            ctx.shadowColor = 'rgba(255, 180, 50, 0.5)';
-            ctx.shadowBlur = cell_size * 0.3;
-
-            // Sharp needle fang
-            ctx.fillStyle = '#f0e8d8';
+            // Glow layer (simple triangle)
+            ctx.fillStyle = 'rgba(255, 180, 50, 0.15)';
             ctx.beginPath();
-            ctx.moveTo(fl, 0);                                              // sharp tip
-            ctx.quadraticCurveTo(fl * 0.05, -spread * 1.2, -fl * 0.3, -spread * 0.6);
-            ctx.lineTo(-fl * 0.25, 0);
-            ctx.lineTo(-fl * 0.3, spread * 0.6);
-            ctx.quadraticCurveTo(fl * 0.05, spread * 1.2, fl, 0);
+            ctx.moveTo(fl * 1.3, 0);
+            ctx.lineTo(-fl * 0.35, -spread * 0.8);
+            ctx.lineTo(-fl * 0.35, spread * 0.8);
             ctx.closePath();
             ctx.fill();
 
-            // Highlight streak
+            // Sharp needle fang (triangle)
+            ctx.fillStyle = '#f0e8d8';
+            ctx.beginPath();
+            ctx.moveTo(fl, 0);
+            ctx.lineTo(-fl * 0.3, -spread * 0.6);
+            ctx.lineTo(-fl * 0.25, 0);
+            ctx.lineTo(-fl * 0.3, spread * 0.6);
+            ctx.closePath();
+            ctx.fill();
+
+            // Highlight
             ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
             ctx.beginPath();
             ctx.moveTo(fl * 0.85, 0);
-            ctx.quadraticCurveTo(fl * 0.15, -spread * 0.4, -fl * 0.1, -spread * 0.25);
-            ctx.quadraticCurveTo(fl * 0.1, 0, fl * 0.85, 0);
+            ctx.lineTo(-fl * 0.1, -spread * 0.25);
+            ctx.lineTo(fl * 0.1, 0);
             ctx.closePath();
             ctx.fill();
-
-            ctx.shadowBlur = 0;
 
             // Venom-fire at tip
             const pulse = 0.5 + Math.sin(f.wobble + now * 0.015) * 0.5;
             ctx.fillStyle = `rgba(255, 180, 50, ${0.6 + pulse * 0.4})`;
-            ctx.beginPath();
-            ctx.arc(fl + fl * 0.06, 0, fl * 0.07, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Secondary venom drip
-            ctx.fillStyle = `rgba(80, 255, 100, ${0.4 * pulse})`;
-            ctx.beginPath();
-            ctx.arc(fl + fl * 0.16, 0, fl * 0.04 * pulse, 0, Math.PI * 2);
-            ctx.fill();
+            const vr = fl * 0.07;
+            ctx.fillRect(fl + fl * 0.06 - vr, -vr, vr * 2, vr * 2);
 
             ctx.restore();
         }

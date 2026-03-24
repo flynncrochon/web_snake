@@ -1,3 +1,5 @@
+import { play_mortar_launch, play_summon, play_summon_hit } from '../audio/sound.js';
+
 const NEST_RANGE = 12;
 const BASE_NEST_COOLDOWN = 7000;
 const NEST_FLIGHT_DURATION = 0.75;
@@ -7,6 +9,8 @@ const MINI_SNAKE_LENGTH = 3;
 const MINI_SNAKE_TICK_RATE = 80; // ms per grid move — fast but readable
 const MINI_SNAKE_MAX_TICKS = 70; // lifetime in ticks (~5.6s)
 const HATCH_DURATION = 0.5;
+const MAX_MINI_SNAKES = 30;
+const MAX_NESTS = 25;
 
 export class SnakeNest {
     constructor() {
@@ -38,12 +42,17 @@ export class SnakeNest {
     }
 
     update(dt, snake, enemy_manager, arena, particles, cell_size, damage_numbers) {
-        if (this.level <= 0) return;
+        const now = performance.now();
+
+        // Even if level is 0 (e.g. replaced by Hydra Brood), tick remaining mini snakes
+        if (this.level <= 0) {
+            this._tick_remaining(dt, enemy_manager, arena, particles, cell_size, damage_numbers, now);
+            return;
+        }
 
         const head = snake.head;
         const hx = head.x + 0.5;
         const hy = head.y + 0.5;
-        const now = performance.now();
 
         // --- Fire at densest enemy cluster ---
         if (now - this.last_fire >= this.get_cooldown()) {
@@ -89,6 +98,7 @@ export class SnakeNest {
                         sparks: [],
                     });
                 }
+                play_mortar_launch();
                 this.last_fire = now;
             }
         }
@@ -122,10 +132,16 @@ export class SnakeNest {
                 s.x += s.vx * dt;
                 s.y += s.vy * dt;
                 s.life -= dt;
-                if (s.life <= 0) p.sparks.splice(j, 1);
+                if (s.life <= 0) {
+                    p.sparks[j] = p.sparks[p.sparks.length - 1];
+                    p.sparks.length--;
+                }
             }
 
             if (t >= 1) {
+                if (this.nests.length >= MAX_NESTS) {
+                    this.nests.shift();
+                }
                 this.nests.push({
                     x: p.target_x,
                     y: p.target_y,
@@ -164,7 +180,7 @@ export class SnakeNest {
                 const grid_x = Math.floor(nest.x);
                 const grid_y = Math.floor(nest.y);
 
-                for (let j = 0; j < count; j++) {
+                for (let j = 0; j < count && this.mini_snakes.length < MAX_MINI_SNAKES; j++) {
                     // Spread spawn positions around the landing cell
                     const dirs = [
                         { dx: 1, dy: 0 }, { dx: -1, dy: 0 },
@@ -195,6 +211,7 @@ export class SnakeNest {
                     });
                 }
 
+                play_summon();
                 if (particles) {
                     const px = nest.x * cell_size;
                     const py = nest.y * cell_size;
@@ -211,10 +228,7 @@ export class SnakeNest {
         // --- Tick mini snakes on the grid ---
         for (let i = this.mini_snakes.length - 1; i >= 0; i--) {
             const ms = this.mini_snakes[i];
-            if (!ms.alive) {
-                this.mini_snakes.splice(i, 1);
-                continue;
-            }
+            if (!ms.alive) continue;
 
             if (ms.ticks_lived >= this.get_max_ticks()) {
                 // Death particles from each segment
@@ -228,7 +242,6 @@ export class SnakeNest {
                     }
                 }
                 ms.alive = false;
-                this.mini_snakes.splice(i, 1);
                 continue;
             }
 
@@ -303,6 +316,7 @@ export class SnakeNest {
                 const dist = Math.sqrt(edx * edx + edy * edy);
                 if (dist < e.radius + 0.45) {
                     const dead = e.take_damage(ms.damage);
+                    play_summon_hit();
 
                     if (damage_numbers) {
                         damage_numbers.emit(e.x, e.y - e.radius, ms.damage, false);
@@ -333,6 +347,15 @@ export class SnakeNest {
                     }
                 }
             });
+        }
+
+        // In-place compaction of dead mini snakes
+        {
+            let w = 0;
+            for (let r = 0; r < this.mini_snakes.length; r++) {
+                if (this.mini_snakes[r].alive) this.mini_snakes[w++] = this.mini_snakes[r];
+            }
+            this.mini_snakes.length = w;
         }
     }
 
@@ -427,28 +450,29 @@ export class SnakeNest {
                 const pulse = 1 + Math.sin(nest.elapsed * 20) * 0.15;
                 const r = cell_size * 0.4 * pulse;
 
-                ctx.save();
-                ctx.shadowColor = 'rgba(255, 200, 50, 0.8)';
-                ctx.shadowBlur = cell_size * 0.6;
-
-                const glow = ctx.createRadialGradient(px, py, 0, px, py, r * 2);
-                glow.addColorStop(0, `rgba(255, 220, 80, ${0.4 * (1 - hatch_t)})`);
-                glow.addColorStop(1, 'rgba(255, 200, 50, 0)');
-                ctx.fillStyle = glow;
+                // Glow (layered circles)
+                const glow_a = 0.4 * (1 - hatch_t);
                 ctx.beginPath();
                 ctx.arc(px, py, r * 2, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 210, 65, ${(glow_a * 0.25).toFixed(3)})`;
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(px, py, r * 1.2, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 220, 80, ${(glow_a * 0.5).toFixed(3)})`;
                 ctx.fill();
 
-                const egg_grad = ctx.createRadialGradient(
-                    px - r * 0.2, py - r * 0.2, 0,
-                    px, py, r
-                );
-                egg_grad.addColorStop(0, 'rgba(255, 240, 200, 0.95)');
-                egg_grad.addColorStop(0.5, 'rgba(255, 180, 50, 0.9)');
-                egg_grad.addColorStop(1, 'rgba(200, 120, 20, 0.7)');
-                ctx.fillStyle = egg_grad;
+                // Egg orb (layered ellipses)
+                ctx.fillStyle = 'rgba(200, 120, 20, 0.7)';
                 ctx.beginPath();
                 ctx.ellipse(px, py, r * 0.8, r, nest.elapsed * 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(255, 180, 50, 0.9)';
+                ctx.beginPath();
+                ctx.ellipse(px, py, r * 0.5, r * 0.6, nest.elapsed * 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(255, 240, 200, 0.95)';
+                ctx.beginPath();
+                ctx.ellipse(px, py, r * 0.2, r * 0.25, nest.elapsed * 2, 0, Math.PI * 2);
                 ctx.fill();
 
                 if (hatch_t > 0.3) {
@@ -468,8 +492,6 @@ export class SnakeNest {
                     }
                 }
 
-                ctx.shadowBlur = 0;
-                ctx.restore();
             } else {
                 const fade = Math.max(0, 1 - (nest.elapsed - HATCH_DURATION) / 0.7);
                 if (fade > 0) {
@@ -534,55 +556,169 @@ export class SnakeNest {
             for (const s of p.sparks) {
                 const s_alpha = Math.max(0, s.life / 0.6);
                 ctx.fillStyle = `rgba(255, 220, 100, ${s_alpha * 0.7})`;
-                ctx.beginPath();
-                ctx.arc(s.x * cell_size, s.y * cell_size, s.size * cell_size, 0, Math.PI * 2);
-                ctx.fill();
+                const sr = s.size * cell_size;
+                ctx.fillRect(s.x * cell_size - sr, s.y * cell_size - sr, sr * 2, sr * 2);
             }
 
-            ctx.save();
-            ctx.shadowColor = 'rgba(255, 180, 50, 0.7)';
-            ctx.shadowBlur = cell_size * 0.6;
-
+            // Egg orb (layered circles)
             const orb_r = cell_size * 0.28;
 
-            const glow_grad = ctx.createRadialGradient(
-                ground_px, orb_py, orb_r * 0.3,
-                ground_px, orb_py, orb_r * 2
-            );
-            glow_grad.addColorStop(0, 'rgba(255, 200, 80, 0.3)');
-            glow_grad.addColorStop(1, 'rgba(255, 180, 50, 0)');
-            ctx.fillStyle = glow_grad;
+            // Glow halo
+            ctx.fillStyle = 'rgba(255, 180, 50, 0.15)';
+            ctx.beginPath();
+            ctx.arc(ground_px, orb_py, orb_r * 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255, 200, 80, 0.08)';
             ctx.beginPath();
             ctx.arc(ground_px, orb_py, orb_r * 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255, 200, 80, 0.2)';
+            ctx.beginPath();
+            ctx.arc(ground_px, orb_py, orb_r * 1.2, 0, Math.PI * 2);
             ctx.fill();
 
             const wobble = Math.sin(p.elapsed * 14) * 0.1 + 1;
             const rx = orb_r * 0.75 * wobble;
             const ry = orb_r * (2 - wobble) * 0.55 + orb_r * 0.45;
 
-            const egg_grad = ctx.createRadialGradient(
-                ground_px - rx * 0.15, orb_py - ry * 0.15, 0,
-                ground_px, orb_py, Math.max(rx, ry)
-            );
-            egg_grad.addColorStop(0, 'rgba(255, 245, 220, 0.95)');
-            egg_grad.addColorStop(0.35, 'rgba(255, 200, 80, 0.9)');
-            egg_grad.addColorStop(0.7, 'rgba(220, 150, 40, 0.85)');
-            egg_grad.addColorStop(1, 'rgba(180, 100, 20, 0.6)');
-
-            ctx.fillStyle = egg_grad;
+            // Egg body (layered ellipses)
+            ctx.fillStyle = 'rgba(180, 100, 20, 0.6)';
             ctx.beginPath();
             ctx.ellipse(ground_px, orb_py, rx, ry, p.elapsed * 4, 0, Math.PI * 2);
             ctx.fill();
+            ctx.fillStyle = 'rgba(220, 150, 40, 0.85)';
+            ctx.beginPath();
+            ctx.ellipse(ground_px, orb_py, rx * 0.7, ry * 0.7, p.elapsed * 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255, 200, 80, 0.9)';
+            ctx.beginPath();
+            ctx.ellipse(ground_px, orb_py, rx * 0.4, ry * 0.4, p.elapsed * 4, 0, Math.PI * 2);
+            ctx.fill();
 
-            ctx.shadowBlur = 0;
-
+            // Inner highlight
             ctx.fillStyle = 'rgba(255, 255, 240, 0.45)';
             ctx.beginPath();
             ctx.arc(ground_px - orb_r * 0.15, orb_py - orb_r * 0.2, orb_r * 0.2, 0, Math.PI * 2);
             ctx.fill();
-
-            ctx.restore();
         }
+    }
+
+    // Tick and clean up remaining mini snakes when no longer spawning new ones
+    _tick_remaining(dt, enemy_manager, arena, particles, cell_size, damage_numbers, now) {
+        if (this.mini_snakes.length === 0) return;
+
+        for (let i = this.mini_snakes.length - 1; i >= 0; i--) {
+            const ms = this.mini_snakes[i];
+            if (!ms.alive) continue;
+
+            if (ms.ticks_lived >= this.get_max_ticks()) {
+                if (particles) {
+                    for (const seg of ms.segments) {
+                        particles.emit(
+                            (seg.x + 0.5) * cell_size,
+                            (seg.y + 0.5) * cell_size,
+                            3, '#0f0', 2
+                        );
+                    }
+                }
+                ms.alive = false;
+                continue;
+            }
+
+            if (now - ms.last_tick_time < MINI_SNAKE_TICK_RATE) continue;
+            ms.last_tick_time += MINI_SNAKE_TICK_RATE;
+            if (now - ms.last_tick_time > MINI_SNAKE_TICK_RATE) {
+                ms.last_tick_time = now;
+            }
+            ms.ticks_lived++;
+
+            const hd = ms.segments[0];
+            const nearest = enemy_manager.query_nearest(hd.x + 0.5, hd.y + 0.5, 30);
+
+            if (nearest) {
+                const dx = nearest.x - (hd.x + 0.5);
+                const dy = nearest.y - (hd.y + 0.5);
+                if (Math.abs(dx) >= Math.abs(dy)) {
+                    const want = { dx: Math.sign(dx) || 1, dy: 0 };
+                    if (ms.segments.length < 2 || want.dx !== -ms.direction.dx || want.dy !== -ms.direction.dy) {
+                        ms.direction = want;
+                    } else {
+                        ms.direction = { dx: 0, dy: Math.sign(dy) || 1 };
+                    }
+                } else {
+                    const want = { dx: 0, dy: Math.sign(dy) || 1 };
+                    if (ms.segments.length < 2 || want.dx !== -ms.direction.dx || want.dy !== -ms.direction.dy) {
+                        ms.direction = want;
+                    } else {
+                        ms.direction = { dx: Math.sign(dx) || 1, dy: 0 };
+                    }
+                }
+            }
+
+            const next_x = hd.x + ms.direction.dx;
+            const next_y = hd.y + ms.direction.dy;
+
+            if (next_x < 0 || next_x >= arena.size || next_y < 0 || next_y >= arena.size) {
+                ms.direction.dx = -ms.direction.dx;
+                ms.direction.dy = -ms.direction.dy;
+                continue;
+            }
+
+            for (let k = ms.segments.length - 1; k >= 1; k--) {
+                const seg = ms.segments[k];
+                seg.prev_x = seg.x;
+                seg.prev_y = seg.y;
+                seg.x = ms.segments[k - 1].x;
+                seg.y = ms.segments[k - 1].y;
+            }
+            hd.prev_x = hd.x;
+            hd.prev_y = hd.y;
+            hd.x = next_x;
+            hd.y = next_y;
+
+            const head_cx = next_x + 0.5;
+            const head_cy = next_y + 0.5;
+            enemy_manager.query_radius(head_cx, head_cy, 1.0, (e) => {
+                const edx = e.x - head_cx;
+                const edy = e.y - head_cy;
+                const dist = Math.sqrt(edx * edx + edy * edy);
+                if (dist < e.radius + 0.45) {
+                    const dead = e.take_damage(ms.damage);
+                    play_summon_hit();
+                    if (damage_numbers) {
+                        damage_numbers.emit(e.x, e.y - e.radius, ms.damage, false);
+                    }
+                    if (particles) {
+                        const px = e.x * cell_size;
+                        const py = e.y * cell_size;
+                        particles.emit(px, py, 6, '#0f0', 3);
+                        particles.emit(px, py, 3, '#fff', 2);
+                    }
+                    if (dead) {
+                        const fx = Math.floor(e.x);
+                        const fy = Math.floor(e.y);
+                        if (fx >= 0 && fx < arena.size && fy >= 0 && fy < arena.size) {
+                            arena.food.push({ x: fx, y: fy });
+                            enemy_manager._try_drop_heart(fx, fy);
+                        }
+                        enemy_manager.total_kills++;
+                        if (particles) {
+                            particles.emit(e.x * cell_size, e.y * cell_size, 8, e.color, 3);
+                        }
+                    } else {
+                        const k_dist = Math.max(0.01, dist);
+                        e.x += (edx / k_dist) * 1.5;
+                        e.y += (edy / k_dist) * 1.5;
+                    }
+                }
+            });
+        }
+
+        let w = 0;
+        for (let r = 0; r < this.mini_snakes.length; r++) {
+            if (this.mini_snakes[r].alive) this.mini_snakes[w++] = this.mini_snakes[r];
+        }
+        this.mini_snakes.length = w;
     }
 
     clear() {

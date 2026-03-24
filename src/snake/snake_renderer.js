@@ -1,6 +1,7 @@
 export class SnakeRenderer {
     render(ctx, snake, cell_size, t, color = '#fff', size_multiplier = 1.0, cam_offset_x = null, cam_offset_y = null) {
-        const dpr = window.devicePixelRatio || 1;
+        // Use 1 for DPR — game canvas renders at DPR=1 for performance
+        const dpr = 1;
         const use_cam = cam_offset_x !== null;
 
         const seg_px = Math.round(cell_size * 0.7 * size_multiplier * dpr);

@@ -1,3 +1,5 @@
+import { play_miasma_pulse } from '../audio/sound.js';
+
 const TICK_INTERVAL = 0.5;
 const BASE_RADIUS = 8.0;
 const BREATH_SPEED = 1.5;
@@ -33,6 +35,7 @@ export class Miasma {
         const hy = head.y + 0.5;
         const radius = this.get_breathing_radius();
 
+        play_miasma_pulse();
         enemy_manager.query_radius(hx, hy, radius, (e) => {
             const dx = e.x - hx;
             const dy = e.y - hy;
@@ -96,36 +99,46 @@ export class Miasma {
         const radius = this.get_breathing_radius() * cell_size;
         const breath = Math.sin(this.breath_phase);
 
-        // Main fog gradient
-        const grad = ctx.createRadialGradient(hx, hy, 0, hx, hy, radius);
-        grad.addColorStop(0, 'rgba(50, 200, 80, 0.18)');
-        grad.addColorStop(0.3, 'rgba(40, 160, 60, 0.14)');
-        grad.addColorStop(0.6, 'rgba(30, 130, 50, 0.08)');
-        grad.addColorStop(0.85, 'rgba(20, 100, 40, 0.04)');
-        grad.addColorStop(1, 'rgba(10, 80, 30, 0)');
-        ctx.fillStyle = grad;
+        // Main fog (concentric circles)
         ctx.beginPath();
         ctx.arc(hx, hy, radius, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(10, 80, 30, 0.03)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(hx, hy, radius * 0.85, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(20, 100, 40, 0.04)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(hx, hy, radius * 0.6, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(30, 130, 50, 0.06)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(hx, hy, radius * 0.3, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(40, 160, 60, 0.1)';
         ctx.fill();
 
-        // Inner toxic core glow
+        // Inner toxic core glow (concentric circles)
         const inner_r = radius * 0.25;
         const core_alpha = 0.15 + breath * 0.05;
-        const grad2 = ctx.createRadialGradient(hx, hy, 0, hx, hy, inner_r);
-        grad2.addColorStop(0, `rgba(80, 255, 120, ${core_alpha})`);
-        grad2.addColorStop(1, 'rgba(40, 180, 60, 0)');
-        ctx.fillStyle = grad2;
         ctx.beginPath();
         ctx.arc(hx, hy, inner_r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(40, 180, 60, ${core_alpha * 0.3})`;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(hx, hy, inner_r * 0.4, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(80, 255, 120, ${core_alpha * 0.7})`;
         ctx.fill();
 
-        // Dashed boundary ring
+        // Dashed boundary ring — transparent wider ring for glow effect
         const ring_alpha = 0.12 + breath * 0.04;
+        ctx.strokeStyle = `rgba(60, 255, 100, ${ring_alpha * 0.2})`;
+        ctx.lineWidth = cell_size * 0.35;
+        ctx.beginPath();
+        ctx.arc(hx, hy, radius, 0, Math.PI * 2);
+        ctx.stroke();
         ctx.save();
         ctx.strokeStyle = `rgba(60, 255, 100, ${ring_alpha})`;
         ctx.lineWidth = cell_size * 0.12;
-        ctx.shadowColor = 'rgba(60, 255, 100, 0.25)';
-        ctx.shadowBlur = cell_size * 0.3;
         ctx.setLineDash([cell_size * 0.3, cell_size * 0.2]);
         ctx.beginPath();
         ctx.arc(hx, hy, radius, 0, Math.PI * 2);

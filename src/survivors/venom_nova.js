@@ -1,7 +1,10 @@
+import { play_nova } from '../audio/sound.js';
+
 const BASE_COOLDOWN = 3500;
 const BASE_RADIUS = 2.5;
 const RADIUS_PER_LEVEL = 0.4;
 const PULSE_VISUAL_DURATION = 0.45;
+const MAX_PULSES = 75;
 
 export class VenomNova {
     constructor() {
@@ -77,7 +80,7 @@ export class VenomNova {
             const aftershock_count = Math.floor((this.duration_mult - 1) / 0.25);
             const total_waves = 1 + aftershock_count;
             for (let w = 0; w < total_waves; w++) {
-                for (let i = 0; i < pulse_count; i++) {
+                for (let i = 0; i < pulse_count && this.pulses.length < MAX_PULSES; i++) {
                     this.pulses.push({
                         x: hx,
                         y: hy,
@@ -89,6 +92,8 @@ export class VenomNova {
                     });
                 }
             }
+
+            play_nova();
 
             // Burst particles at head
             if (particles) {
@@ -138,7 +143,15 @@ export class VenomNova {
                 p.elapsed += dt;
             }
         }
-        this.pulses = this.pulses.filter(p => p.delay > 0 || p.elapsed < p.duration);
+        // In-place compaction
+        {
+            let w = 0;
+            for (let r = 0; r < this.pulses.length; r++) {
+                const p = this.pulses[r];
+                if (p.delay > 0 || p.elapsed < p.duration) this.pulses[w++] = p;
+            }
+            this.pulses.length = w;
+        }
     }
 
     render(ctx, cell_size) {
@@ -153,25 +166,31 @@ export class VenomNova {
             const px = p.x * cell_size;
             const py = p.y * cell_size;
 
-            // Outer glow ring
-            ctx.save();
-            ctx.strokeStyle = `rgba(60, 255, 100, ${alpha * 0.8})`;
-            ctx.lineWidth = cell_size * 0.2 * (1 - t);
-            ctx.shadowColor = 'rgba(60, 255, 100, 0.5)';
-            ctx.shadowBlur = cell_size * 0.5;
+            // Outer glow ring — transparent wider ring for glow effect
+            ctx.strokeStyle = `rgba(60, 255, 100, ${alpha * 0.15})`;
+            ctx.lineWidth = cell_size * 0.5 * (1 - t);
             ctx.beginPath();
             ctx.arc(px, py, r, 0, Math.PI * 2);
             ctx.stroke();
-            ctx.restore();
-
-            // Inner fill
-            const grad = ctx.createRadialGradient(px, py, 0, px, py, r);
-            grad.addColorStop(0, `rgba(60, 255, 100, ${alpha * 0.15})`);
-            grad.addColorStop(0.6, `rgba(30, 200, 60, ${alpha * 0.08})`);
-            grad.addColorStop(1, `rgba(20, 150, 40, 0)`);
-            ctx.fillStyle = grad;
+            // Main ring
+            ctx.strokeStyle = `rgba(60, 255, 100, ${alpha * 0.8})`;
+            ctx.lineWidth = cell_size * 0.2 * (1 - t);
             ctx.beginPath();
             ctx.arc(px, py, r, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Inner fill (concentric circles)
+            ctx.beginPath();
+            ctx.arc(px, py, r, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(20, 150, 40, ${alpha * 0.04})`;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(px, py, r * 0.6, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(30, 200, 60, ${alpha * 0.08})`;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(px, py, r * 0.2, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(60, 255, 100, ${alpha * 0.15})`;
             ctx.fill();
         }
     }

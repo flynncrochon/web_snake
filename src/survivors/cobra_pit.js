@@ -1,3 +1,5 @@
+import { play_mortar_launch, play_summon_hit } from '../audio/sound.js';
+
 const PIT_RANGE = 12;
 const PIT_RANGE_SQ = PIT_RANGE * PIT_RANGE;
 const BASE_PIT_COOLDOWN = 8000;
@@ -7,8 +9,9 @@ const MAX_PIT_TRAIL = 20;
 
 // Pit properties
 const PIT_DURATION = 6.0;
-const COBRA_SPAWN_INTERVAL = 0.8;
-const MAX_COBRAS_PER_PIT = 4;
+const COBRA_SPAWN_INTERVAL = 0.55;
+const MAX_COBRAS_PER_PIT = 6;
+const MAX_TOTAL_COBRAS = 30; // global cap — excess spawns become damage buffs
 
 // Cobra properties
 const COBRA_LIFETIME = 5.0;
@@ -36,6 +39,7 @@ export class CobraPit {
         this.radius_mult = 1;
         this.range_mult = 1;
         this.fire_cooldown_mult = 1;
+        this._overflow_dmg_mult = 1; // bonus damage from cobras that couldn't spawn
         // Reusable spine arrays — avoids allocation per cobra per frame
         this._spine_x = new Float64Array(SEG_COUNT + 1);
         this._spine_y = new Float64Array(SEG_COUNT + 1);
@@ -46,7 +50,7 @@ export class CobraPit {
     }
 
     get_spit_damage() {
-        return (1 + Math.floor(this.level / 2)) * 60 * this.gorger_dmg_mult;
+        return (1 + Math.floor(this.level / 2)) * 60 * this.gorger_dmg_mult * this._overflow_dmg_mult;
     }
 
     get_max_cobras() {
@@ -101,6 +105,7 @@ export class CobraPit {
                         trail: [], sparks: [],
                     });
                 }
+                play_mortar_launch();
                 this.last_fire = now;
             }
         }
@@ -131,7 +136,10 @@ export class CobraPit {
             for (let j = p.sparks.length - 1; j >= 0; j--) {
                 const s = p.sparks[j];
                 s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
-                if (s.life <= 0) p.sparks.splice(j, 1);
+                if (s.life <= 0) {
+                    p.sparks[j] = p.sparks[p.sparks.length - 1];
+                    p.sparks.length--;
+                }
             }
 
             if (t >= 1) {
@@ -158,21 +166,27 @@ export class CobraPit {
             pit.ring_radius += dt * 4;
             pit.ring_alpha = Math.max(0, 1 - pit.elapsed);
             if (pit.cobras_spawned < max_cobras && pit.elapsed >= pit.next_cobra_time) {
-                const angle = (pit.cobras_spawned / max_cobras) * Math.PI * 2 + Math.random() * 0.3;
-                const dist = 0.8 + Math.random() * 0.5;
-                this.cobras.push({
-                    x: pit.x + Math.cos(angle) * dist,
-                    y: pit.y + Math.sin(angle) * dist,
-                    alive: true, life: this.get_cobra_lifetime(),
-                    elapsed: 0, last_spit: 0,
-                    sway_offset: Math.random() * Math.PI * 2,
-                });
+                const alive_count = this.cobras.reduce((n, c) => n + (c.alive ? 1 : 0), 0);
+                if (alive_count < MAX_TOTAL_COBRAS) {
+                    const angle = (pit.cobras_spawned / max_cobras) * Math.PI * 2 + Math.random() * 0.3;
+                    const dist = 0.8 + Math.random() * 0.5;
+                    this.cobras.push({
+                        x: pit.x + Math.cos(angle) * dist,
+                        y: pit.y + Math.sin(angle) * dist,
+                        alive: true, life: this.get_cobra_lifetime(),
+                        elapsed: 0, last_spit: 0,
+                        sway_offset: Math.random() * Math.PI * 2,
+                    });
+                    if (particles) {
+                        particles.emit((pit.x + Math.cos(angle) * dist) * cell_size,
+                            (pit.y + Math.sin(angle) * dist) * cell_size, 6, '#886622', 2);
+                    }
+                } else {
+                    // Cap reached — boost all existing cobras' damage instead
+                    this._overflow_dmg_mult += 0.15;
+                }
                 pit.cobras_spawned++;
                 pit.next_cobra_time = pit.elapsed + COBRA_SPAWN_INTERVAL;
-                if (particles) {
-                    particles.emit((pit.x + Math.cos(angle) * dist) * cell_size,
-                        (pit.y + Math.sin(angle) * dist) * cell_size, 6, '#886622', 2);
-                }
             }
             if (pit.elapsed >= pit_dur) this.pits.splice(i, 1);
         }
@@ -182,11 +196,11 @@ export class CobraPit {
         const spit_dmg = this.get_spit_damage();
         for (let i = this.cobras.length - 1; i >= 0; i--) {
             const c = this.cobras[i];
-            if (!c.alive) { this.cobras.splice(i, 1); continue; }
+            if (!c.alive) continue;
             c.elapsed += dt;
             if (c.elapsed >= c.life) {
                 if (particles) particles.emit(c.x * cell_size, c.y * cell_size, 4, '#886622', 2);
-                c.alive = false; this.cobras.splice(i, 1); continue;
+                c.alive = false; continue;
             }
             if (c.elapsed < COBRA_RISE_DURATION || c.elapsed - c.last_spit < spit_cd) continue;
 
@@ -207,6 +221,8 @@ export class CobraPit {
                 if (particles) particles.emit(c.x * cell_size, (c.y - 0.5) * cell_size, 3, '#88ee22', 2);
             }
         }
+        // Compact dead cobras
+        { let w = 0; for (let r = 0; r < this.cobras.length; r++) { if (this.cobras[r].alive) this.cobras[w++] = this.cobras[r]; } this.cobras.length = w; }
 
         // --- Update spits ---
         for (let i = this.spits.length - 1; i >= 0; i--) {
@@ -231,6 +247,7 @@ export class CobraPit {
                 if (dsq < hr * hr) {
                     spit_hit = true;
                     const dead = e.take_damage(s.damage);
+                    play_summon_hit();
                     if (damage_numbers) damage_numbers.emit(e.x, e.y - e.radius, s.damage, s.is_crit);
                     if (particles) {
                         const px = e.x * cell_size, py = e.y * cell_size;
@@ -339,18 +356,17 @@ export class CobraPit {
             const body_w = cell_size * 0.13;
             ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 
-            // Outline
+            // Outline + body (lineTo instead of quadraticCurveTo — cheaper GPU path)
             ctx.strokeStyle = '#1a5a1a';
             ctx.lineWidth = body_w * 2 + 2;
             ctx.beginPath(); ctx.moveTo(sx[0], sy[0]);
-            for (let i = 1; i < SEG_COUNT; i++) ctx.quadraticCurveTo(sx[i], sy[i], (sx[i] + sx[i + 1]) * 0.5, (sy[i] + sy[i + 1]) * 0.5);
+            for (let i = 1; i <= SEG_COUNT; i++) ctx.lineTo(sx[i], sy[i]);
             ctx.stroke();
 
-            // Body
             ctx.strokeStyle = '#2a8a2a';
             ctx.lineWidth = body_w * 2;
             ctx.beginPath(); ctx.moveTo(sx[0], sy[0]);
-            for (let i = 1; i < SEG_COUNT; i++) ctx.quadraticCurveTo(sx[i], sy[i], (sx[i] + sx[i + 1]) * 0.5, (sy[i] + sy[i + 1]) * 0.5);
+            for (let i = 1; i <= SEG_COUNT; i++) ctx.lineTo(sx[i], sy[i]);
             ctx.stroke();
 
             // Head — diamond, precomputed for straight-up orientation
@@ -401,36 +417,46 @@ export class CobraPit {
 
     render_spits(ctx, cell_size) {
         const now_s = performance.now() * 0.001;
+
+        // --- Batch all spit trails in 3 bands (normal + crit separately) ---
+        ctx.lineCap = 'round';
+        const base_r = cell_size * 0.18;
+        const spit_bands = [
+            { frac: 0.3, a: 0.045, w: 0.3 },
+            { frac: 0.6, a: 0.18,  w: 0.6 },
+            { frac: 0.9, a: 0.40,  w: 0.9 },
+        ];
+        for (const is_crit of [false, true]) {
+            for (const band of spit_bands) {
+                ctx.strokeStyle = is_crit ? `rgba(230,255,50,${band.a.toFixed(2)})` : `rgba(100,240,30,${band.a.toFixed(2)})`;
+                ctx.lineWidth = base_r * 2 * band.frac;
+                ctx.beginPath();
+                for (let si = 0; si < this.spits.length; si++) {
+                    const s = this.spits[si];
+                    if (s.is_crit !== is_crit || s.trail.length < 2) continue;
+                    const trail = s.trail, tlen = trail.length - 1;
+                    const lo = Math.max(1, Math.floor(band.frac * tlen * 0.4));
+                    const hi = Math.min(tlen + 1, Math.ceil(band.frac * tlen * 1.4));
+                    for (let i = lo; i < hi; i++) {
+                        ctx.moveTo(trail[i - 1].x * cell_size, trail[i - 1].y * cell_size);
+                        ctx.lineTo(trail[i].x * cell_size, trail[i].y * cell_size);
+                    }
+                }
+                ctx.stroke();
+            }
+        }
+
         for (let si = 0; si < this.spits.length; si++) {
             const s = this.spits[si];
             const spx = s.x * cell_size, spy = s.y * cell_size;
-            const life_frac = s.life / s.max_life;
-            const base_r = cell_size * 0.18;
 
-            // Drips — simple circles, no glow pass
+            // Drips — fillRect for tiny dots
             if (s.drips.length > 0) {
                 ctx.fillStyle = s.is_crit ? 'rgba(220,255,40,0.6)' : 'rgba(100,230,30,0.6)';
                 for (let di = 0; di < s.drips.length; di++) {
                     const d = s.drips[di];
-                    ctx.beginPath();
-                    ctx.arc(d.x * cell_size, d.y * cell_size, d.size * cell_size, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-            }
-
-            // Trail — single pass (no triple iteration)
-            if (s.trail.length >= 2) {
-                ctx.lineCap = 'round';
-                const trail = s.trail, tlen = trail.length - 1;
-                for (let i = 1; i <= tlen; i++) {
-                    const frac = i / tlen;
-                    const a = frac * frac * 0.5 * life_frac;
-                    ctx.strokeStyle = s.is_crit ? `rgba(230,255,50,${a.toFixed(2)})` : `rgba(100,240,30,${a.toFixed(2)})`;
-                    ctx.lineWidth = base_r * 2 * frac;
-                    ctx.beginPath();
-                    ctx.moveTo(trail[i - 1].x * cell_size, trail[i - 1].y * cell_size);
-                    ctx.lineTo(trail[i].x * cell_size, trail[i].y * cell_size);
-                    ctx.stroke();
+                    const dr = d.size * cell_size;
+                    ctx.fillRect(d.x * cell_size - dr, d.y * cell_size - dr, dr * 2, dr * 2);
                 }
             }
 
@@ -446,6 +472,31 @@ export class CobraPit {
     }
 
     render_projectiles(ctx, cell_size) {
+        // --- Batch all projectile trails in 3 bands ---
+        ctx.lineCap = 'round';
+        const proj_bands = [
+            { frac: 0.3, a: 0.036, w_mult: 0.054 },
+            { frac: 0.6, a: 0.144, w_mult: 0.108 },
+            { frac: 0.9, a: 0.324, w_mult: 0.162 },
+        ];
+        for (const band of proj_bands) {
+            ctx.strokeStyle = `rgba(100,180,50,${band.a.toFixed(3)})`;
+            ctx.lineWidth = Math.max(0.5, band.w_mult * cell_size);
+            ctx.beginPath();
+            for (let pi = 0; pi < this.projectiles.length; pi++) {
+                const p = this.projectiles[pi];
+                if (p.trail.length < 2) continue;
+                const tlen = p.trail.length - 1;
+                const lo = Math.max(1, Math.floor(band.frac * tlen * 0.4));
+                const hi = Math.min(tlen + 1, Math.ceil(band.frac * tlen * 1.4));
+                for (let i = lo; i < hi; i++) {
+                    ctx.moveTo(p.trail[i - 1].x * cell_size, p.trail[i - 1].y * cell_size);
+                    ctx.lineTo(p.trail[i].x * cell_size, p.trail[i].y * cell_size);
+                }
+            }
+            ctx.stroke();
+        }
+
         for (let pi = 0; pi < this.projectiles.length; pi++) {
             const p = this.projectiles[pi];
             const t = Math.min(p.elapsed / p.duration, 1);
@@ -458,26 +509,12 @@ export class CobraPit {
             ctx.fillStyle = `rgba(80,60,20,${(0.1 + (1 - height / PIT_ARC_HEIGHT) * 0.15).toFixed(2)})`;
             ctx.beginPath(); ctx.arc(gpx, gpy, cell_size * 0.4, 0, Math.PI * 2); ctx.fill();
 
-            // Trail
-            if (p.trail.length >= 2) {
-                ctx.lineCap = 'round';
-                const tlen = p.trail.length - 1;
-                for (let i = 1; i <= tlen; i++) {
-                    const frac = i / tlen;
-                    ctx.strokeStyle = `rgba(100,180,50,${(frac * frac * 0.4).toFixed(2)})`;
-                    ctx.lineWidth = Math.max(0.5, frac * cell_size * 0.18);
-                    ctx.beginPath();
-                    ctx.moveTo(p.trail[i - 1].x * cell_size, p.trail[i - 1].y * cell_size);
-                    ctx.lineTo(p.trail[i].x * cell_size, p.trail[i].y * cell_size);
-                    ctx.stroke();
-                }
-            }
-
             // Sparks
             for (let si = 0; si < p.sparks.length; si++) {
                 const sp = p.sparks[si];
                 ctx.fillStyle = `rgba(140,200,60,${(Math.max(0, sp.life / 0.6) * 0.6).toFixed(2)})`;
-                ctx.beginPath(); ctx.arc(sp.x * cell_size, sp.y * cell_size, sp.size * cell_size, 0, Math.PI * 2); ctx.fill();
+                const sr = sp.size * cell_size;
+                ctx.fillRect(sp.x * cell_size - sr, sp.y * cell_size - sr, sr * 2, sr * 2);
             }
 
             // Orb — layered circles (no gradients, no shadowBlur)

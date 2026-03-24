@@ -1,3 +1,4 @@
+import { play_fang_fire, play_fang_hit } from '../audio/sound.js';
 import { Bullet } from './bullet.js';
 
 const MAX_BULLETS = 40;
@@ -68,6 +69,7 @@ export class BulletManager {
                     this.bullets.push(new Bullet(hx + ox, hy + oy, ndx, ndy, nearest));
                 }
                 this.last_fire_time = now;
+                play_fang_fire();
             }
         }
 
@@ -93,6 +95,7 @@ export class BulletManager {
                 const dist = Math.sqrt(dx * dx + dy * dy);
                 if (dist < b.radius + e.radius) {
                     b.alive = false;
+                    play_fang_hit();
                     const is_crit = this.crit_chance > 0 && Math.random() < this.crit_chance;
                     const dmg = Math.round((is_crit ? 2 : 1) * 125 * this.gorger_dmg_mult);
                     const dead = e.take_damage(dmg);
@@ -125,7 +128,12 @@ export class BulletManager {
             });
         }
 
-        this.bullets = this.bullets.filter(b => b.alive);
+        // In-place compaction — avoids allocating a new array every frame
+        let w = 0;
+        for (let r = 0; r < this.bullets.length; r++) {
+            if (this.bullets[r].alive) this.bullets[w++] = this.bullets[r];
+        }
+        this.bullets.length = w;
     }
 
     clear() {

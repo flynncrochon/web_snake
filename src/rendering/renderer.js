@@ -3,10 +3,18 @@ import { ARENA_SIZE } from '../constants.js';
 export class Renderer {
     constructor(canvas) {
         this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
+        this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+
+        // HUD overlay canvas — renders text at native DPR for crisp text
+        this.hud_canvas = document.getElementById('hud');
+        this.hud_ctx = this.hud_canvas
+            ? this.hud_canvas.getContext('2d', { alpha: true })
+            : null;
+
         this._current_dpr = window.devicePixelRatio || 1;
         this._square_mode = true;
         this._square_arena_size = ARENA_SIZE;
+        this._force_dpr = 0; // 0 = auto (game=1, hud=native), nonzero = override both
 
         this._setup_dpr_listener();
         this.reset_to_square();
@@ -17,10 +25,8 @@ export class Renderer {
             const new_dpr = window.devicePixelRatio || 1;
             if (new_dpr !== this._current_dpr) {
                 this._current_dpr = new_dpr;
-                // Re-apply current size with new DPR
                 this._apply_size(this.logical_width, this.logical_height);
             }
-            // Re-register since matchMedia listeners are one-shot per threshold
             this._dpr_mql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
             this._dpr_mql.addEventListener('change', check_dpr, { once: true });
         };
@@ -28,14 +34,37 @@ export class Renderer {
         this._dpr_mql.addEventListener('change', check_dpr, { once: true });
     }
 
+    _handle_lowres() {
+        this._apply_size(this.logical_width, this.logical_height);
+    }
+
     _apply_size(w, h) {
-        const dpr = window.devicePixelRatio || 1;
-        this._current_dpr = dpr;
-        this.canvas.width = Math.round(w * dpr);
-        this.canvas.height = Math.round(h * dpr);
+        const native_dpr = window.devicePixelRatio || 1;
+        // Game canvas always renders at DPR=1 for performance (unless force_dpr overrides)
+        const game_dpr = this._force_dpr || 1;
+        // HUD canvas renders at native DPR for crisp text
+        const hud_dpr = native_dpr;
+
+        this._current_dpr = game_dpr;
+
+        // Game canvas — low res for fast rasterization
+        this.canvas.width = Math.round(w * game_dpr);
+        this.canvas.height = Math.round(h * game_dpr);
         this.canvas.style.width = w + 'px';
         this.canvas.style.height = h + 'px';
-        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.ctx.setTransform(game_dpr, 0, 0, game_dpr, 0, 0);
+        this.ctx.imageSmoothingEnabled = false;
+        this.canvas.style.transform = 'translateZ(0)';
+
+        // HUD canvas — native res for crisp text
+        if (this.hud_canvas) {
+            this.hud_canvas.width = Math.round(w * hud_dpr);
+            this.hud_canvas.height = Math.round(h * hud_dpr);
+            this.hud_canvas.style.width = w + 'px';
+            this.hud_canvas.style.height = h + 'px';
+            this.hud_ctx.setTransform(hud_dpr, 0, 0, hud_dpr, 0, 0);
+        }
+
         this.logical_width = w;
         this.logical_height = h;
     }
@@ -78,5 +107,11 @@ export class Renderer {
     clear() {
         this.ctx.fillStyle = '#000';
         this.ctx.fillRect(0, 0, this.logical_width, this.logical_height);
+    }
+
+    clear_hud() {
+        if (this.hud_ctx) {
+            this.hud_ctx.clearRect(0, 0, this.logical_width, this.logical_height);
+        }
     }
 }

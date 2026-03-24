@@ -1,3 +1,5 @@
+import { play_mortar_launch, play_summon, play_summon_hit } from '../audio/sound.js';
+
 const NEST_RANGE = 12;
 const NEST_RANGE_SQ = NEST_RANGE * NEST_RANGE;
 const HYDRA_COOLDOWN = 5500;
@@ -21,6 +23,8 @@ const BROOD_DAMAGE = 60;
 
 const HEAD_FORK_ANGLE = 0.4;
 const HEAD_FORK_DIST = 0.35;
+const MAX_HYDRA_SNAKES = 20;
+const MAX_BROOD_SNAKES = 30;
 
 export class HydraBrood {
     constructor() {
@@ -50,8 +54,16 @@ export class HydraBrood {
 
             let best = null;
             let best_score = -1;
+            // Fisher-Yates partial shuffle: O(12) instead of O(n log n) sort
+            const sample_count = Math.min(12, candidates.length);
+            for (let i = 0; i < sample_count; i++) {
+                const j = i + Math.floor(Math.random() * (candidates.length - i));
+                const tmp = candidates[i];
+                candidates[i] = candidates[j];
+                candidates[j] = tmp;
+            }
             const sample = candidates.length <= 12 ? candidates
-                : candidates.sort(() => Math.random() - 0.5).slice(0, 12);
+                : candidates.slice(0, 12);
 
             for (const e of sample) {
                 const score = 1 + enemy_manager.query_count(e.x, e.y, 4, e);
@@ -68,6 +80,7 @@ export class HydraBrood {
                     elapsed: 0, duration: FLIGHT_DURATION,
                     trail: [], sparks: [],
                 });
+                play_mortar_launch();
                 this.last_fire = now;
             }
         }
@@ -101,7 +114,10 @@ export class HydraBrood {
                 s.x += s.vx * dt;
                 s.y += s.vy * dt;
                 s.life -= dt;
-                if (s.life <= 0) p.sparks.splice(j, 1);
+                if (s.life <= 0) {
+                    p.sparks[j] = p.sparks[p.sparks.length - 1];
+                    p.sparks.length--;
+                }
             }
 
             if (t >= 1) {
@@ -136,7 +152,7 @@ export class HydraBrood {
                     { dx: 0, dy: 1 }, { dx: 0, dy: -1 },
                 ];
 
-                for (let j = 0; j < HYDRA_SPAWN_COUNT; j++) {
+                for (let j = 0; j < HYDRA_SPAWN_COUNT && this.hydra_snakes.length < MAX_HYDRA_SNAKES; j++) {
                     const dir = dirs[j % dirs.length];
                     const sx = Math.max(0, Math.min(arena.size - 1, grid_x + dir.dx * (Math.floor(j / 4) + 1)));
                     const sy = Math.max(0, Math.min(arena.size - 1, grid_y + dir.dy * (Math.floor(j / 4) + 1)));
@@ -152,6 +168,7 @@ export class HydraBrood {
                     });
                 }
 
+                play_summon();
                 if (particles) {
                     const px = nest.x * cell_size;
                     const py = nest.y * cell_size;
@@ -166,7 +183,7 @@ export class HydraBrood {
         // --- Tick hydra snakes ---
         for (let i = this.hydra_snakes.length - 1; i >= 0; i--) {
             const ms = this.hydra_snakes[i];
-            if (!ms.alive) { this.hydra_snakes.splice(i, 1); continue; }
+            if (!ms.alive) continue;
 
             if (ms.ticks_lived >= Math.round(HYDRA_MAX_TICKS * this.duration_mult)) {
                 // Split into 2 brood snakes
@@ -175,6 +192,7 @@ export class HydraBrood {
                 const perp2 = { dx: -(ms.direction.dy || 1), dy: ms.direction.dx };
 
                 for (const dir of [perp1, perp2]) {
+                    if (this.brood_snakes.length >= MAX_BROOD_SNAKES) break;
                     const bx = Math.max(0, Math.min(arena.size - 1, hd.x));
                     const by = Math.max(0, Math.min(arena.size - 1, hd.y));
                     const segs = [];
@@ -196,17 +214,18 @@ export class HydraBrood {
                     particles.emit(px, py, 6, '#66ff88', 2);
                 }
                 ms.alive = false;
-                this.hydra_snakes.splice(i, 1);
                 continue;
             }
 
             this._tick_snake(ms, HYDRA_TICK_RATE, enemy_manager, arena, particles, cell_size, damage_numbers, now);
         }
+        // Compact dead hydra snakes
+        { let w = 0; for (let r = 0; r < this.hydra_snakes.length; r++) { if (this.hydra_snakes[r].alive) this.hydra_snakes[w++] = this.hydra_snakes[r]; } this.hydra_snakes.length = w; }
 
         // --- Tick brood snakes ---
         for (let i = this.brood_snakes.length - 1; i >= 0; i--) {
             const ms = this.brood_snakes[i];
-            if (!ms.alive) { this.brood_snakes.splice(i, 1); continue; }
+            if (!ms.alive) continue;
 
             if (ms.ticks_lived >= Math.round(BROOD_MAX_TICKS * this.duration_mult)) {
                 if (particles) {
@@ -215,12 +234,13 @@ export class HydraBrood {
                     }
                 }
                 ms.alive = false;
-                this.brood_snakes.splice(i, 1);
                 continue;
             }
 
             this._tick_snake(ms, BROOD_TICK_RATE, enemy_manager, arena, particles, cell_size, damage_numbers, now);
         }
+        // Compact dead brood snakes
+        { let w = 0; for (let r = 0; r < this.brood_snakes.length; r++) { if (this.brood_snakes[r].alive) this.brood_snakes[w++] = this.brood_snakes[r]; } this.brood_snakes.length = w; }
     }
 
     _tick_snake(ms, tick_rate, enemy_manager, arena, particles, cell_size, damage_numbers, now) {
@@ -286,6 +306,7 @@ export class HydraBrood {
             const dist = Math.sqrt(edx * edx + edy * edy);
             if (dist < e.radius + 0.45) {
                 const dead = e.take_damage(ms.damage);
+                play_summon_hit();
                 if (damage_numbers) damage_numbers.emit(e.x, e.y - e.radius, ms.damage, false);
                 if (particles) {
                     const px = e.x * cell_size;
@@ -331,25 +352,29 @@ export class HydraBrood {
                 const pulse = 1 + Math.sin(nest.elapsed * 20) * 0.15;
                 const r = cell_size * 0.4 * pulse;
 
-                ctx.save();
-                ctx.shadowColor = 'rgba(140, 80, 255, 0.8)';
-                ctx.shadowBlur = cell_size * 0.6;
-
-                const glow = ctx.createRadialGradient(px, py, 0, px, py, r * 2);
-                glow.addColorStop(0, `rgba(160, 120, 255, ${0.4 * (1 - hatch_t)})`);
-                glow.addColorStop(1, 'rgba(100, 200, 130, 0)');
-                ctx.fillStyle = glow;
+                // Glow (layered circles)
+                const glow_a = 0.4 * (1 - hatch_t);
                 ctx.beginPath();
                 ctx.arc(px, py, r * 2, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(130, 160, 193, ${(glow_a * 0.25).toFixed(3)})`;
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(px, py, r * 1.2, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(160, 120, 255, ${(glow_a * 0.5).toFixed(3)})`;
                 ctx.fill();
 
-                const egg_grad = ctx.createRadialGradient(px - r * 0.2, py - r * 0.2, 0, px, py, r);
-                egg_grad.addColorStop(0, 'rgba(220, 200, 255, 0.95)');
-                egg_grad.addColorStop(0.5, 'rgba(140, 80, 220, 0.9)');
-                egg_grad.addColorStop(1, 'rgba(60, 160, 80, 0.7)');
-                ctx.fillStyle = egg_grad;
+                // Egg orb (layered ellipses)
+                ctx.fillStyle = 'rgba(60, 160, 80, 0.7)';
                 ctx.beginPath();
                 ctx.ellipse(px, py, r * 0.8, r, nest.elapsed * 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(140, 80, 220, 0.9)';
+                ctx.beginPath();
+                ctx.ellipse(px, py, r * 0.5, r * 0.6, nest.elapsed * 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(220, 200, 255, 0.95)';
+                ctx.beginPath();
+                ctx.ellipse(px, py, r * 0.2, r * 0.25, nest.elapsed * 2, 0, Math.PI * 2);
                 ctx.fill();
 
                 if (hatch_t > 0.3) {
@@ -369,8 +394,6 @@ export class HydraBrood {
                     }
                 }
 
-                ctx.shadowBlur = 0;
-                ctx.restore();
             } else {
                 const fade = Math.max(0, 1 - (nest.elapsed - HATCH_DURATION) / 0.7);
                 if (fade > 0) {
@@ -438,51 +461,50 @@ export class HydraBrood {
             for (const s of p.sparks) {
                 const s_alpha = Math.max(0, s.life / 0.6);
                 ctx.fillStyle = `rgba(180, 140, 255, ${s_alpha * 0.7})`;
-                ctx.beginPath();
-                ctx.arc(s.x * cell_size, s.y * cell_size, s.size * cell_size, 0, Math.PI * 2);
-                ctx.fill();
+                const sr = s.size * cell_size;
+                ctx.fillRect(s.x * cell_size - sr, s.y * cell_size - sr, sr * 2, sr * 2);
             }
 
-            // Egg orb — purple-green
-            ctx.save();
-            ctx.shadowColor = 'rgba(140, 80, 255, 0.7)';
-            ctx.shadowBlur = cell_size * 0.6;
-
+            // Egg orb — purple-green (layered circles)
             const orb_r = cell_size * 0.28;
 
-            const glow_grad = ctx.createRadialGradient(ground_px, orb_py, orb_r * 0.3, ground_px, orb_py, orb_r * 2);
-            glow_grad.addColorStop(0, 'rgba(160, 120, 255, 0.3)');
-            glow_grad.addColorStop(1, 'rgba(80, 200, 100, 0)');
-            ctx.fillStyle = glow_grad;
+            // Glow halo
+            ctx.fillStyle = 'rgba(140, 80, 255, 0.15)';
+            ctx.beginPath();
+            ctx.arc(ground_px, orb_py, orb_r * 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(160, 120, 255, 0.08)';
             ctx.beginPath();
             ctx.arc(ground_px, orb_py, orb_r * 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(160, 120, 255, 0.2)';
+            ctx.beginPath();
+            ctx.arc(ground_px, orb_py, orb_r * 1.2, 0, Math.PI * 2);
             ctx.fill();
 
             const wobble = Math.sin(p.elapsed * 14) * 0.1 + 1;
             const rx = orb_r * 0.75 * wobble;
             const ry = orb_r * (2 - wobble) * 0.55 + orb_r * 0.45;
 
-            const egg_grad = ctx.createRadialGradient(
-                ground_px - rx * 0.15, orb_py - ry * 0.15, 0,
-                ground_px, orb_py, Math.max(rx, ry)
-            );
-            egg_grad.addColorStop(0, 'rgba(230, 210, 255, 0.95)');
-            egg_grad.addColorStop(0.35, 'rgba(160, 100, 220, 0.9)');
-            egg_grad.addColorStop(0.7, 'rgba(80, 180, 100, 0.85)');
-            egg_grad.addColorStop(1, 'rgba(40, 120, 60, 0.6)');
-
-            ctx.fillStyle = egg_grad;
+            // Egg body (layered ellipses)
+            ctx.fillStyle = 'rgba(40, 120, 60, 0.6)';
             ctx.beginPath();
             ctx.ellipse(ground_px, orb_py, rx, ry, p.elapsed * 4, 0, Math.PI * 2);
             ctx.fill();
+            ctx.fillStyle = 'rgba(80, 180, 100, 0.85)';
+            ctx.beginPath();
+            ctx.ellipse(ground_px, orb_py, rx * 0.7, ry * 0.7, p.elapsed * 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(160, 100, 220, 0.9)';
+            ctx.beginPath();
+            ctx.ellipse(ground_px, orb_py, rx * 0.4, ry * 0.4, p.elapsed * 4, 0, Math.PI * 2);
+            ctx.fill();
 
-            ctx.shadowBlur = 0;
+            // Inner highlight
             ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
             ctx.beginPath();
             ctx.arc(ground_px - orb_r * 0.15, orb_py - orb_r * 0.2, orb_r * 0.18, 0, Math.PI * 2);
             ctx.fill();
-
-            ctx.restore();
         }
     }
 

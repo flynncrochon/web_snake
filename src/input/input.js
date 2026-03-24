@@ -56,6 +56,10 @@ export class Input {
             e.preventDefault();
             this.on_action('evolution_menu');
         }
+        if (e.key === 'F3') {
+            e.preventDefault();
+            this.on_action('perf_overlay');
+        }
     }
 
     queue_direction(dir) {

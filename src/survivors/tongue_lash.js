@@ -1,3 +1,5 @@
+import { play_lash } from '../audio/sound.js';
+
 const BASE_RANGE = 3;
 const BASE_COOLDOWN = 2000;
 const CONE_HALF_ANGLE = Math.PI / 3; // 60° half = 120° cone
@@ -50,6 +52,7 @@ export class TongueLash {
         const face_dy = snake.direction.dy;
 
         if (now - this.last_lash >= this.get_cooldown()) {
+            play_lash();
             const range = this.get_range();
             const dmg_base = this.get_damage();
             const lash_count = this.get_lash_count();
@@ -144,7 +147,14 @@ export class TongueLash {
         for (const v of this.lashes) {
             v.elapsed += dt;
         }
-        this.lashes = this.lashes.filter(v => v.elapsed < v.duration);
+        // In-place compaction
+        {
+            let w = 0;
+            for (let r = 0; r < this.lashes.length; r++) {
+                if (this.lashes[r].elapsed < this.lashes[r].duration) this.lashes[w++] = this.lashes[r];
+            }
+            this.lashes.length = w;
+        }
 
         // --- Update slow on enemies ---
         for (const e of enemy_manager.enemies) {
@@ -187,19 +197,30 @@ export class TongueLash {
             ctx.translate(px, py);
             ctx.rotate(current_angle);
 
-            // --- Cone glow (the area of effect indicator) ---
+            // --- Cone glow (the area of effect indicator, concentric arcs) ---
             const cone_half = v.cone_half;
             ctx.save();
             ctx.rotate(-cone_half);
+            // Outer cone fill
             ctx.beginPath();
             ctx.moveTo(0, 0);
             ctx.arc(0, 0, len * 0.9, 0, cone_half * 2);
             ctx.closePath();
-            const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, len * 0.9);
-            grad.addColorStop(0, `rgba(255, 60, 100, ${alpha * 0.12})`);
-            grad.addColorStop(0.5, `rgba(255, 40, 80, ${alpha * 0.06})`);
-            grad.addColorStop(1, `rgba(200, 20, 60, 0)`);
-            ctx.fillStyle = grad;
+            ctx.fillStyle = `rgba(200, 20, 60, ${alpha * 0.04})`;
+            ctx.fill();
+            // Mid cone fill
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.arc(0, 0, len * 0.5, 0, cone_half * 2);
+            ctx.closePath();
+            ctx.fillStyle = `rgba(255, 40, 80, ${alpha * 0.06})`;
+            ctx.fill();
+            // Inner cone fill
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.arc(0, 0, len * 0.15, 0, cone_half * 2);
+            ctx.closePath();
+            ctx.fillStyle = `rgba(255, 60, 100, ${alpha * 0.1})`;
             ctx.fill();
             ctx.restore();
 
@@ -211,8 +232,15 @@ export class TongueLash {
             // Pulsing color
             const pulse = 0.7 + Math.sin(now * 0.015 + t * 10) * 0.3;
 
-            ctx.shadowColor = `rgba(255, 50, 90, ${alpha * 0.6})`;
-            ctx.shadowBlur = cell_size * 0.3;
+            // Glow layer — slightly wider, semi-transparent tongue stroke
+            const glow_alpha = alpha * 0.15;
+            ctx.strokeStyle = `rgba(255, 50, 90, ${glow_alpha})`;
+            ctx.lineWidth = tongue_w * 2.5;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.quadraticCurveTo(len * 0.4, Math.sin(t * Math.PI * 3) * cell_size * 0.06 * (t > 0.55 ? 1 - (t - 0.55) / 0.45 : 1), fork_start, 0);
+            ctx.stroke();
 
             // Slight wave in the tongue shaft for organic feel
             const wave = Math.sin(t * Math.PI * 3) * cell_size * 0.06 * retract;
@@ -249,7 +277,6 @@ export class TongueLash {
             ctx.stroke();
 
             // Tip glow dots
-            ctx.shadowBlur = 0;
             ctx.fillStyle = `rgba(255, 120, 150, ${alpha * pulse})`;
             ctx.beginPath();
             ctx.arc(len, -fork_spread, tongue_w * 0.5, 0, Math.PI * 2);

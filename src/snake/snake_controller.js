@@ -1,3 +1,5 @@
+import { play_eat_sound } from '../audio/sound.js';
+
 export class SnakeController {
 
     tick_all(snakes, arena) {
@@ -133,12 +135,14 @@ export class SnakeController {
             if (food_idx !== -1) {
                 arena.food.splice(food_idx, 1);
                 snake.grow_pending++;
+                if (snake.is_player) play_eat_sound();
             }
 
             const remain_idx = arena.remains.findIndex(r => r.x === head.x && r.y === head.y);
             if (remain_idx !== -1) {
                 arena.remains.splice(remain_idx, 1);
                 snake.grow_pending += 2;
+                if (snake.is_player) play_eat_sound();
             }
 
             if (snake.grow_pending > 0) {

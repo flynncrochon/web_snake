@@ -1,3 +1,5 @@
+import { play_fang_fire, play_fang_hit, play_shatter } from '../audio/sound.js';
+
 const SHATTER_RANGE = 12;
 const SHATTER_RANGE_SQ = SHATTER_RANGE * SHATTER_RANGE;
 const SHATTER_COOLDOWN = 3000;
@@ -151,6 +153,7 @@ export class ShatterFang {
                     });
                 }
                 this.last_fire = now;
+                play_fang_fire();
             }
         }
 
@@ -219,6 +222,7 @@ export class ShatterFang {
                     const is_crit = this.crit_chance > 0 && Math.random() < this.crit_chance;
                     const final_dmg = Math.round(f.base_dmg * bounce_mult * (is_crit ? 2 : 1) * this.gorger_dmg_mult);
                     const dead = e.take_damage(final_dmg);
+                    play_fang_hit();
 
                     if (damage_numbers) {
                         damage_numbers.emit(e.x, e.y - e.radius, final_dmg, is_crit);
@@ -254,6 +258,7 @@ export class ShatterFang {
 
                     // --- SHATTER on crit: spawn splinter projectiles ---
                     if (is_crit) {
+                        play_shatter();
                         new_splinters.push(f);
                     }
 
@@ -275,7 +280,12 @@ export class ShatterFang {
             this._spawn_splinters(parent, enemy_manager);
         }
 
-        this.fangs = this.fangs.filter(f => f.alive);
+        // In-place compaction
+        let w = 0;
+        for (let r = 0; r < this.fangs.length; r++) {
+            if (this.fangs[r].alive) this.fangs[w++] = this.fangs[r];
+        }
+        this.fangs.length = w;
     }
 
     render(ctx, cell_size) {
@@ -330,11 +340,17 @@ export class ShatterFang {
             ctx.translate(px, py);
             ctx.rotate(angle);
 
-            // Fiery glow
+            // Fiery glow layer (replaces shadowBlur)
             const glow_r = is_splinter ? 255 : Math.round(255 - f.generation * 30);
             const glow_g = is_splinter ? 150 : Math.round(100 + f.bounce_count * 10);
-            ctx.shadowColor = `rgba(${glow_r}, ${glow_g}, 50, 0.6)`;
-            ctx.shadowBlur = cell_size * (0.3 + f.bounce_count * 0.04) * scale;
+            ctx.fillStyle = `rgba(${glow_r}, ${glow_g}, 50, 0.15)`;
+            ctx.beginPath();
+            ctx.moveTo(fl * 1.3, 0);
+            ctx.lineTo(0, -fw * 1.3);
+            ctx.lineTo(-fl * 0.4 * 1.3, 0);
+            ctx.lineTo(0, fw * 1.3);
+            ctx.closePath();
+            ctx.fill();
 
             // Diamond body — red-orange tint
             const body_r = is_splinter ? '#ffe0b0' : '#ffd4b0';
@@ -370,8 +386,6 @@ export class ShatterFang {
                 ctx.lineTo(-fl * 0.1, fw * 0.5);
                 ctx.stroke();
             }
-
-            ctx.shadowBlur = 0;
 
             // Fire sparkle at tip
             const pulse = 0.5 + Math.sin(f.wobble + now * 0.015) * 0.5;

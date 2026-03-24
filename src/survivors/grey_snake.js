@@ -19,7 +19,8 @@ export class GreySnakeManager {
         if (now - this.game_start_time < GREY_FIRST_SPAWN) return;
 
         this.spawn_accum += dt * 1000;
-        const active = this.snakes.filter(s => s.alive).length;
+        let active = 0;
+        for (let i = 0; i < this.snakes.length; i++) { if (this.snakes[i].alive) active++; }
         if (this.spawn_accum >= GREY_SPAWN_INTERVAL && active < 1) {
             this.spawn_accum = 0;
             this._spawn(player_snake);
@@ -72,8 +73,8 @@ export class GreySnakeManager {
 
         let sx = Math.round(head.x + dir.dx * ahead);
         let sy = Math.round(head.y + dir.dy * ahead);
-        sx = Math.max(3, Math.min(this.arena_size - 4, sx));
-        sy = Math.max(3, Math.min(this.arena_size - 4, sy));
+        sx = Math.max(1, Math.min(this.arena_size - 2, sx));
+        sy = Math.max(1, Math.min(this.arena_size - 2, sy));
 
         const now = performance.now();
 
@@ -107,8 +108,8 @@ export class GreySnakeManager {
         const dir = player_snake.direction;
         const look = 15 + Math.floor(Math.random() * 10); // 15-24 cells ahead
 
-        gs.target_x = Math.max(1, Math.min(this.arena_size - 2, head.x + dir.dx * look));
-        gs.target_y = Math.max(1, Math.min(this.arena_size - 2, head.y + dir.dy * look));
+        gs.target_x = Math.max(2, Math.min(this.arena_size - 3, head.x + dir.dx * look));
+        gs.target_y = Math.max(2, Math.min(this.arena_size - 3, head.y + dir.dy * look));
         gs.phase = 'intercept';
 
         // Pre-compute the wall direction (perpendicular to player's current heading)
@@ -168,10 +169,12 @@ export class GreySnakeManager {
 
         if (!dir || (dir.dx === 0 && dir.dy === 0)) return;
 
-        // Arena bounds — if we'd leave, bounce the wall or pick alternate axis
+        // Arena bounds — never enter the outermost boundary row/column
+        const MIN = 1;
+        const MAX = this.arena_size - 2;
         let nx = head.x + dir.dx;
         let ny = head.y + dir.dy;
-        if (nx < 0 || nx >= this.arena_size || ny < 0 || ny >= this.arena_size) {
+        if (nx < MIN || nx > MAX || ny < MIN || ny > MAX) {
             if (gs.phase === 'wall') {
                 // Reverse wall sweep direction
                 gs.wall_dx = -gs.wall_dx;
@@ -189,7 +192,7 @@ export class GreySnakeManager {
             }
             nx = head.x + dir.dx;
             ny = head.y + dir.dy;
-            if (nx < 0 || nx >= this.arena_size || ny < 0 || ny >= this.arena_size) return;
+            if (nx < MIN || nx > MAX || ny < MIN || ny > MAX) return;
         }
 
         gs.direction = dir;
@@ -234,6 +237,71 @@ export class GreySnakeManager {
             return { dx: Math.sign(dx), dy: 0 };
         }
         return { dx: 0, dy: Math.sign(dy) };
+    }
+
+    /** Kill any grey snake fully encircled by the player's body. */
+    check_encircled_by(player_snake) {
+        const plen = player_snake.segments.length;
+        // A snake of length N can enclose at most ~N*N/4 cells
+        if (plen < 8) return; // too short to encircle anything
+
+        const walls = new Set();
+        for (const seg of player_snake.segments) {
+            walls.add(seg.x + ',' + seg.y);
+        }
+
+        const max_area = Math.ceil(plen * plen * 0.25);
+
+        for (const gs of this.snakes) {
+            if (!gs.alive) continue;
+
+            // Build a set of the grey snake's own segments for fast lookup
+            const own = new Set();
+            for (const seg of gs.segments) {
+                own.add(seg.x + ',' + seg.y);
+            }
+
+            const head = gs.segments[0];
+            const visited = new Set();
+            const queue = [{ x: head.x, y: head.y }];
+            visited.add(head.x + ',' + head.y);
+            let escaped = false;
+
+            while (queue.length > 0 && !escaped) {
+                const { x, y } = queue.shift();
+
+                // Reached arena edge — not enclosed
+                if (x <= 0 || x >= this.arena_size - 1 ||
+                    y <= 0 || y >= this.arena_size - 1) {
+                    escaped = true;
+                    break;
+                }
+
+                // Visited more cells than the player could possibly enclose
+                if (visited.size > max_area) {
+                    escaped = true;
+                    break;
+                }
+
+                for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    const key = nx + ',' + ny;
+                    if (nx < 0 || nx >= this.arena_size || ny < 0 || ny >= this.arena_size) continue;
+                    if (visited.has(key) || walls.has(key) || own.has(key)) continue;
+                    visited.add(key);
+                    queue.push({ x: nx, y: ny });
+                }
+            }
+
+            if (!escaped) {
+                gs.alive = false;
+                // Remove its barriers
+                for (const seg of gs.segments) {
+                    this.barriers.delete(seg.x + ',' + seg.y);
+                }
+            }
+        }
     }
 
     check_collision(px, py) {

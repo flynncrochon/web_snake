@@ -1,3 +1,5 @@
+import { play_grapple, play_devour, play_explosion } from '../audio/sound.js';
+
 // Serpent's Reckoning — Evolution of Tongue Lash + Serpent's Reach
 // Fires a long-range grapple tongue that latches onto a distant enemy,
 // yanks it back toward the snake head, dealing damage to everything
@@ -26,6 +28,8 @@ export class SerpentsReckoning {
         this.duration_mult = 1;
         this.fire_cooldown_mult = 1;
         this.last_fire = 0;
+        this._curve_x = new Float64Array(128);
+        this._curve_y = new Float64Array(128);
         this.pending_xp = 0;       // consumed XP for main loop to pick up
         this.tongues = [];
         this.bites = [];           // bite animations at head
@@ -49,8 +53,9 @@ export class SerpentsReckoning {
             const count = this.get_tongue_count();
             const targeted = new Set();
 
+            // Cache query once for all tongues instead of querying per-tongue
+            const enemies = enemy_manager.query_radius_array(hx, hy, eff_range);
             for (let i = 0; i < count; i++) {
-                const enemies = enemy_manager.query_radius_array(hx, hy, eff_range);
                 let best = null;
                 let best_dist = 0;
                 for (const e of enemies) {
@@ -93,6 +98,7 @@ export class SerpentsReckoning {
             }
 
             if (targeted.size > 0) {
+                play_grapple();
                 this.last_fire = now;
                 if (particles) {
                     const px = hx * cell_size;
@@ -174,6 +180,7 @@ export class SerpentsReckoning {
                         // Remove immunity and devour — instakill + consume
                         e._reckoning_immune = false;
                         e.take_damage(Infinity);
+                        play_devour();
                         this._handle_devour(e, t.snake, enemy_manager, particles, cell_size);
 
                         // Spawn bite animation
@@ -187,6 +194,7 @@ export class SerpentsReckoning {
                         });
 
                         // AoE explosion around the bite — damage nearby enemies
+                        play_explosion();
                         const aoe_r = BITE_AOE_RADIUS * this.radius_mult;
                         enemy_manager.query_radius(shx, shy, aoe_r, (other) => {
                             if (other === e) return;
@@ -307,7 +315,14 @@ export class SerpentsReckoning {
         for (const b of this.bites) {
             b.elapsed += dt;
         }
-        this.bites = this.bites.filter(b => b.elapsed < b.duration);
+        // In-place compaction
+        {
+            let w = 0;
+            for (let r = 0; r < this.bites.length; r++) {
+                if (this.bites[r].elapsed < this.bites[r].duration) this.bites[w++] = this.bites[r];
+            }
+            this.bites.length = w;
+        }
 
         // --- Update stun timers ---
         for (const e of enemy_manager.enemies) {
@@ -319,7 +334,14 @@ export class SerpentsReckoning {
             }
         }
 
-        this.tongues = this.tongues.filter(t => t.phase !== 'done');
+        // In-place compaction
+        {
+            let w = 0;
+            for (let r = 0; r < this.tongues.length; r++) {
+                if (this.tongues[r].phase !== 'done') this.tongues[w++] = this.tongues[r];
+            }
+            this.tongues.length = w;
+        }
     }
 
     // Devour: instakill at the head — directly consume fruit + XP, prevent splitter splitting
@@ -395,130 +417,124 @@ export class SerpentsReckoning {
             const wave_freq = 4;
             const phase = now * 0.008 + (t.birth * 0.001);
 
-            const points = [];
+            const crx = this._curve_x, cry = this._curve_y;
             for (let i = 0; i <= segments; i++) {
                 const frac = i / segments;
                 const bx = head_px + dx * frac;
                 const by = head_py + dy * frac;
                 const taper = Math.sin(frac * Math.PI);
                 const wave = Math.sin(frac * wave_freq * Math.PI + phase) * wave_amp * taper;
-                points.push({
-                    x: bx + perp_x * wave,
-                    y: by + perp_y * wave,
-                });
+                crx[i] = bx + perp_x * wave;
+                cry[i] = by + perp_y * wave;
             }
+            const seg_count = segments + 1;
 
-            // --- Outer glow (magenta/purple) ---
-            ctx.save();
+            const _tracePath = () => {
+                ctx.beginPath();
+                ctx.moveTo(crx[0], cry[0]);
+                for (let i = 1; i < seg_count; i++) ctx.lineTo(crx[i], cry[i]);
+            };
+
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
+
+            // --- Outer glow (layered transparency instead of shadowBlur) ---
+            ctx.globalAlpha = 0.15;
+            ctx.strokeStyle = 'rgba(200, 50, 120, 0.3)';
+            ctx.lineWidth = cell_size * 0.6;
+            _tracePath(); ctx.stroke();
+
             ctx.globalAlpha = 0.25;
             ctx.strokeStyle = '#aa2266';
             ctx.lineWidth = cell_size * 0.4;
-            ctx.shadowColor = 'rgba(200, 50, 120, 0.5)';
-            ctx.shadowBlur = cell_size * 0.5;
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, points[0].y);
-            for (let i = 1; i < points.length; i++) {
-                ctx.lineTo(points[i].x, points[i].y);
-            }
-            ctx.stroke();
-            ctx.restore();
+            _tracePath(); ctx.stroke();
 
             // --- Main tongue body (red-pink) ---
-            ctx.save();
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
             ctx.globalAlpha = 0.8;
             ctx.strokeStyle = '#dd3366';
             ctx.lineWidth = cell_size * 0.18;
-            ctx.shadowColor = 'rgba(255, 50, 100, 0.6)';
-            ctx.shadowBlur = cell_size * 0.3;
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, points[0].y);
-            for (let i = 1; i < points.length; i++) {
-                ctx.lineTo(points[i].x, points[i].y);
-            }
-            ctx.stroke();
-            ctx.restore();
+            _tracePath(); ctx.stroke();
 
             // --- Bright core ---
-            ctx.save();
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
             ctx.globalAlpha = 0.9;
             ctx.strokeStyle = '#ffaacc';
             ctx.lineWidth = cell_size * 0.05;
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, points[0].y);
-            for (let i = 1; i < points.length; i++) {
-                ctx.lineTo(points[i].x, points[i].y);
-            }
-            ctx.stroke();
-            ctx.restore();
+            _tracePath(); ctx.stroke();
 
             // --- Forked tip ---
-            const tip = points[points.length - 1];
-            const pretip = points[Math.max(0, points.length - 3)];
-            const tip_angle = Math.atan2(tip.y - pretip.y, tip.x - pretip.x);
+            const tip_x = crx[seg_count - 1], tip_y = cry[seg_count - 1];
+            const pretip_idx = Math.max(0, seg_count - 3);
+            const pretip_x = crx[pretip_idx], pretip_y = cry[pretip_idx];
+            const tip_angle = Math.atan2(tip_y - pretip_y, tip_x - pretip_x);
             const fork_len = cell_size * 0.5;
             const fork_spread = 0.4;
 
-            ctx.save();
             ctx.lineCap = 'round';
+
+            // Glow layer for fork
+            ctx.strokeStyle = 'rgba(255, 50, 100, 0.2)';
+            ctx.lineWidth = cell_size * 0.2;
+            ctx.beginPath();
+            ctx.moveTo(tip_x, tip_y);
+            ctx.lineTo(
+                tip_x + Math.cos(tip_angle - fork_spread) * fork_len,
+                tip_y + Math.sin(tip_angle - fork_spread) * fork_len
+            );
+            ctx.moveTo(tip_x, tip_y);
+            ctx.lineTo(
+                tip_x + Math.cos(tip_angle + fork_spread) * fork_len,
+                tip_y + Math.sin(tip_angle + fork_spread) * fork_len
+            );
+            ctx.stroke();
+
+            // Main fork
             ctx.strokeStyle = '#dd3366';
             ctx.lineWidth = cell_size * 0.1;
-            ctx.shadowColor = 'rgba(255, 50, 100, 0.4)';
-            ctx.shadowBlur = cell_size * 0.2;
-
             ctx.beginPath();
-            ctx.moveTo(tip.x, tip.y);
+            ctx.moveTo(tip_x, tip_y);
             ctx.lineTo(
-                tip.x + Math.cos(tip_angle - fork_spread) * fork_len,
-                tip.y + Math.sin(tip_angle - fork_spread) * fork_len
+                tip_x + Math.cos(tip_angle - fork_spread) * fork_len,
+                tip_y + Math.sin(tip_angle - fork_spread) * fork_len
+            );
+            ctx.moveTo(tip_x, tip_y);
+            ctx.lineTo(
+                tip_x + Math.cos(tip_angle + fork_spread) * fork_len,
+                tip_y + Math.sin(tip_angle + fork_spread) * fork_len
             );
             ctx.stroke();
 
-            ctx.beginPath();
-            ctx.moveTo(tip.x, tip.y);
-            ctx.lineTo(
-                tip.x + Math.cos(tip_angle + fork_spread) * fork_len,
-                tip.y + Math.sin(tip_angle + fork_spread) * fork_len
-            );
-            ctx.stroke();
-            ctx.restore();
-
-            // --- Glow on grabbed target ---
+            // --- Glow on grabbed target (concentric circles) ---
             if (t.grabbed && t.target && t.target.alive) {
                 const pulse = 0.5 + Math.sin(now * 0.012) * 0.5;
                 const glow_r = cell_size * 0.6 * (0.7 + pulse * 0.3);
-                ctx.save();
                 ctx.globalAlpha = 0.45;
-                const grad = ctx.createRadialGradient(tx, ty, 0, tx, ty, glow_r);
-                grad.addColorStop(0, '#ffaacc');
-                grad.addColorStop(0.4, '#dd3366');
-                grad.addColorStop(1, 'rgba(200, 50, 100, 0)');
-                ctx.fillStyle = grad;
                 ctx.beginPath();
                 ctx.arc(tx, ty, glow_r, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(200, 50, 100, 0.08)';
                 ctx.fill();
-                ctx.restore();
+                ctx.beginPath();
+                ctx.arc(tx, ty, glow_r * 0.55, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(221, 51, 102, 0.18)';
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(tx, ty, glow_r * 0.15, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 170, 204, 0.45)';
+                ctx.fill();
             }
 
-            // --- Impact glow at head during retract ---
+            // --- Impact glow at head during retract (concentric circles) ---
             if (t.phase === 'retract') {
                 const pulse = 0.5 + Math.sin(now * 0.015) * 0.5;
                 const r = cell_size * 0.35 * (0.6 + pulse * 0.4);
-                ctx.save();
                 ctx.globalAlpha = 0.3;
-                const grad = ctx.createRadialGradient(head_px, head_py, 0, head_px, head_py, r);
-                grad.addColorStop(0, '#ff88bb');
-                grad.addColorStop(1, 'rgba(200, 50, 100, 0)');
-                ctx.fillStyle = grad;
                 ctx.beginPath();
                 ctx.arc(head_px, head_py, r, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(200, 50, 100, 0.1)';
                 ctx.fill();
-                ctx.restore();
+                ctx.beginPath();
+                ctx.arc(head_px, head_py, r * 0.3, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 136, 187, 0.4)';
+                ctx.fill();
             }
         }
 
@@ -533,28 +549,35 @@ export class SerpentsReckoning {
             // --- Shockwave ring ---
             const ring_r = BITE_AOE_RADIUS * cell_size * t;
             const ring_alpha = (1 - t) * 0.5;
-            ctx.save();
-            ctx.strokeStyle = `rgba(255, 255, 255, ${ring_alpha})`;
-            ctx.lineWidth = cell_size * 0.12 * (1 - t);
-            ctx.shadowColor = `rgba(255, 255, 255, ${ring_alpha * 0.4})`;
-            ctx.shadowBlur = cell_size * 0.3;
+            // Glow ring layer
+            ctx.strokeStyle = `rgba(255, 255, 255, ${ring_alpha * 0.2})`;
+            ctx.lineWidth = cell_size * 0.3 * (1 - t);
             ctx.beginPath();
             ctx.arc(bx, by, ring_r, 0, Math.PI * 2);
             ctx.stroke();
-            ctx.restore();
+            // Main ring
+            ctx.strokeStyle = `rgba(255, 255, 255, ${ring_alpha})`;
+            ctx.lineWidth = cell_size * 0.12 * (1 - t);
+            ctx.beginPath();
+            ctx.arc(bx, by, ring_r, 0, Math.PI * 2);
+            ctx.stroke();
 
-            // --- White flash on impact ---
+            // --- White flash on impact (concentric circles) ---
             if (t < 0.25) {
                 const flash_t = t / 0.25;
                 const flash_alpha = (1 - flash_t) * 0.7;
                 const flash_r = cell_size * 3.5 * flash_t;
-                const fgrad = ctx.createRadialGradient(bx, by, 0, bx, by, flash_r);
-                fgrad.addColorStop(0, `rgba(255, 255, 255, ${flash_alpha})`);
-                fgrad.addColorStop(0.3, `rgba(255, 240, 245, ${flash_alpha * 0.6})`);
-                fgrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-                ctx.fillStyle = fgrad;
                 ctx.beginPath();
                 ctx.arc(bx, by, flash_r, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${flash_alpha * 0.06})`;
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(bx, by, flash_r * 0.5, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 240, 245, ${flash_alpha * 0.2})`;
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(bx, by, flash_r * 0.15, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${flash_alpha * 0.5})`;
                 ctx.fill();
             }
 
@@ -586,8 +609,6 @@ export class SerpentsReckoning {
             ctx.save();
             ctx.rotate(-jaw_open);
             ctx.fillStyle = `rgba(255, 255, 255, ${jaw_alpha})`;
-            ctx.shadowColor = `rgba(255, 255, 255, ${jaw_alpha * 0.7})`;
-            ctx.shadowBlur = cell_size * 0.6;
             ctx.beginPath();
             ctx.moveTo(-cell_size * 0.4, 0);                               // hinge (back of jaw)
             ctx.quadraticCurveTo(jaw_len * 0.3, -jaw_thick * 0.8,          // curves up
@@ -606,8 +627,6 @@ export class SerpentsReckoning {
             ctx.save();
             ctx.rotate(jaw_open);
             ctx.fillStyle = `rgba(255, 255, 255, ${jaw_alpha})`;
-            ctx.shadowColor = `rgba(255, 255, 255, ${jaw_alpha * 0.7})`;
-            ctx.shadowBlur = cell_size * 0.6;
             ctx.beginPath();
             ctx.moveTo(-cell_size * 0.4, 0);                               // hinge
             ctx.quadraticCurveTo(jaw_len * 0.3, jaw_thick * 0.8,           // curves down

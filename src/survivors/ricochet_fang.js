@@ -1,3 +1,5 @@
+import { play_fang_fire, play_ricochet_ping } from '../audio/sound.js';
+
 const RICOCHET_RANGE = 10;
 const RICOCHET_RANGE_SQ = RICOCHET_RANGE * RICOCHET_RANGE;
 const BASE_COOLDOWN = 3500;
@@ -59,9 +61,9 @@ export class RicochetFang {
             if (candidates.length > 0) {
                 const count = this.get_fang_count();
                 candidates.sort((a, b) => {
-                    const da = (a.x - hx) ** 2 + (a.y - hy) ** 2;
-                    const db = (b.x - hx) ** 2 + (b.y - hy) ** 2;
-                    return da - db;
+                    const adx = a.x - hx; const ady = a.y - hy;
+                    const bdx = b.x - hx; const bdy = b.y - hy;
+                    return (adx * adx + ady * ady) - (bdx * bdx + bdy * bdy);
                 });
 
                 for (let i = 0; i < count; i++) {
@@ -96,6 +98,7 @@ export class RicochetFang {
                     });
                 }
                 this.last_fire = now;
+                play_fang_fire();
             }
         }
 
@@ -191,6 +194,7 @@ export class RicochetFang {
                     if (f.bounce_count >= f.max_bounces) {
                         f.alive = false;
                     } else {
+                        play_ricochet_ping();
                         // Find next bounce target within bounce radius
                         const br = this.get_bounce_radius();
                         f.target = enemy_manager.query_nearest(f.x, f.y, br, f.hit_ids);
@@ -201,7 +205,12 @@ export class RicochetFang {
             });
         }
 
-        this.fangs = this.fangs.filter(f => f.alive);
+        // In-place compaction
+        let w = 0;
+        for (let r = 0; r < this.fangs.length; r++) {
+            if (this.fangs[r].alive) this.fangs[w++] = this.fangs[r];
+        }
+        this.fangs.length = w;
     }
 
     render(ctx, cell_size) {
@@ -253,10 +262,16 @@ export class RicochetFang {
             ctx.translate(px, py);
             ctx.rotate(angle);
 
-            // Icy glow intensifies with bounces
-            const glow_strength = 0.4 + Math.min(f.bounce_count * 0.1, 0.5);
-            ctx.shadowColor = `rgba(100, 200, 255, ${glow_strength})`;
-            ctx.shadowBlur = cell_size * (0.3 + f.bounce_count * 0.05);
+            // Icy glow layer (replaces shadowBlur) — intensifies with bounces
+            const glow_alpha = 0.1 + Math.min(f.bounce_count * 0.03, 0.15);
+            ctx.fillStyle = `rgba(100, 200, 255, ${glow_alpha})`;
+            ctx.beginPath();
+            ctx.moveTo(fl * 1.3, 0);
+            ctx.lineTo(0, -fw * 1.3);
+            ctx.lineTo(-fl * 0.4 * 1.3, 0);
+            ctx.lineTo(0, fw * 1.3);
+            ctx.closePath();
+            ctx.fill();
 
             // Diamond body
             ctx.fillStyle = '#d8eeff';
@@ -277,8 +292,6 @@ export class RicochetFang {
             ctx.lineTo(fl * 0.1, fw * 0.5);
             ctx.closePath();
             ctx.fill();
-
-            ctx.shadowBlur = 0;
 
             // Icy sparkle at tip
             const pulse = 0.5 + Math.sin(f.wobble + now * 0.014) * 0.5;

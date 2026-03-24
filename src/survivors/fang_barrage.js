@@ -1,3 +1,5 @@
+import { play_fang_fire, play_fang_hit } from '../audio/sound.js';
+
 const FANG_RANGE = 9;
 const FANG_RANGE_SQ = FANG_RANGE * FANG_RANGE;
 const BASE_COOLDOWN = 2500;
@@ -82,6 +84,7 @@ export class FangBarrage {
                     });
                 }
                 this.last_fire = now;
+                play_fang_fire();
             }
         }
 
@@ -133,6 +136,7 @@ export class FangBarrage {
                 const dy = f.y - e.y;
                 if (Math.sqrt(dx * dx + dy * dy) < FANG_RADIUS + e.radius) {
                     f.alive = false;
+                    play_fang_hit();
                     const is_crit = this.crit_chance > 0 && Math.random() < this.crit_chance;
                     const final_dmg = Math.round((is_crit ? dmg * 2 : dmg) * this.gorger_dmg_mult);
                     const dead = e.take_damage(final_dmg);
@@ -164,43 +168,47 @@ export class FangBarrage {
             });
         }
 
-        this.fangs = this.fangs.filter(f => f.alive);
+        // In-place compaction
+        let w = 0;
+        for (let r = 0; r < this.fangs.length; r++) {
+            if (this.fangs[r].alive) this.fangs[w++] = this.fangs[r];
+        }
+        this.fangs.length = w;
     }
 
     render(ctx, cell_size) {
         const now = performance.now();
+
+        // --- Batch all fang trails first (3 bands instead of per-segment strokes) ---
+        ctx.lineCap = 'round';
+        const trail_bands = [
+            { frac: 0.3, color: 'rgba(80, 255, 100, 0.10)', w_mult: 0.045 },
+            { frac: 0.6, color: 'rgba(80, 255, 100, 0.21)', w_mult: 0.09 },
+            { frac: 0.9, color: 'rgba(80, 255, 100, 0.31)', w_mult: 0.135 },
+        ];
+        for (const band of trail_bands) {
+            ctx.strokeStyle = band.color;
+            ctx.lineWidth = band.w_mult * cell_size;
+            ctx.beginPath();
+            for (const f of this.fangs) {
+                if (!f.alive || f.trail.length < 2) continue;
+                const tlen = f.trail.length;
+                const lo = Math.max(1, Math.floor(band.frac * tlen * 0.4));
+                const hi = Math.min(tlen, Math.ceil(band.frac * tlen * 1.4));
+                for (let i = lo; i < hi; i++) {
+                    ctx.moveTo(f.trail[i - 1].x * cell_size, f.trail[i - 1].y * cell_size);
+                    ctx.lineTo(f.trail[i].x * cell_size, f.trail[i].y * cell_size);
+                }
+            }
+            ctx.stroke();
+        }
+
         for (const f of this.fangs) {
             if (!f.alive) continue;
 
             const px = f.x * cell_size;
             const py = f.y * cell_size;
             const angle = Math.atan2(f.dy, f.dx);
-
-            // --- Venom trail ---
-            if (f.trail.length >= 2) {
-                ctx.lineCap = 'round';
-                for (let i = 1; i < f.trail.length; i++) {
-                    const frac = i / f.trail.length;
-                    const x0 = f.trail[i - 1].x * cell_size;
-                    const y0 = f.trail[i - 1].y * cell_size;
-                    const x1 = f.trail[i].x * cell_size;
-                    const y1 = f.trail[i].y * cell_size;
-                    // Outer green venom glow
-                    ctx.strokeStyle = `rgba(80, 255, 100, ${frac * 0.35})`;
-                    ctx.lineWidth = frac * cell_size * 0.15;
-                    ctx.beginPath();
-                    ctx.moveTo(x0, y0);
-                    ctx.lineTo(x1, y1);
-                    ctx.stroke();
-                    // Bright core
-                    ctx.strokeStyle = `rgba(200, 255, 210, ${frac * 0.25})`;
-                    ctx.lineWidth = frac * cell_size * 0.05;
-                    ctx.beginPath();
-                    ctx.moveTo(x0, y0);
-                    ctx.lineTo(x1, y1);
-                    ctx.stroke();
-                }
-            }
 
             // --- Two curved fangs ---
             const fl = cell_size * 0.55;     // fang length
@@ -211,67 +219,54 @@ export class FangBarrage {
             ctx.translate(px, py);
             ctx.rotate(angle);
 
-            ctx.shadowColor = 'rgba(80, 255, 100, 0.5)';
-            ctx.shadowBlur = cell_size * 0.35;
-
-            // --- Upper fang ---
-            ctx.fillStyle = '#f0e8e0';
+            // --- Glow layer (single path for both fangs) ---
+            ctx.fillStyle = 'rgba(80, 255, 100, 0.15)';
             ctx.beginPath();
-            ctx.moveTo(fl, -gap);                                                    // sharp tip
-            ctx.quadraticCurveTo(fl * 0.1, -spread * 1.5, -fl * 0.4, -spread);      // outer curve back
-            ctx.lineTo(-fl * 0.3, -gap * 2);                                        // inner base
-            ctx.quadraticCurveTo(fl * 0.2, -gap * 1.2, fl, -gap);                   // inner curve to tip
+            ctx.moveTo(fl * 1.3, -gap * 1.3);
+            ctx.lineTo(-fl * 0.4, -spread * 1.3);
+            ctx.lineTo(-fl * 0.3, -gap * 1.3);
+            ctx.closePath();
+            ctx.moveTo(fl * 1.3, gap * 1.3);
+            ctx.lineTo(-fl * 0.4, spread * 1.3);
+            ctx.lineTo(-fl * 0.3, gap * 1.3);
             ctx.closePath();
             ctx.fill();
 
-            // Upper fang highlight
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            // --- Both fangs in one path ---
+            ctx.fillStyle = '#f0e8e0';
+            ctx.beginPath();
+            // Upper fang
+            ctx.moveTo(fl, -gap);
+            ctx.lineTo(-fl * 0.4, -spread);
+            ctx.lineTo(-fl * 0.3, -gap * 2);
+            ctx.closePath();
+            // Lower fang
+            ctx.moveTo(fl, gap);
+            ctx.lineTo(-fl * 0.4, spread);
+            ctx.lineTo(-fl * 0.3, gap * 2);
+            ctx.closePath();
+            ctx.fill();
+
+            // --- Highlight (both fangs, one path) ---
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
             ctx.beginPath();
             ctx.moveTo(fl * 0.8, -gap * 1.1);
-            ctx.quadraticCurveTo(fl * 0.2, -spread * 0.6, -fl * 0.15, -spread * 0.5);
-            ctx.quadraticCurveTo(fl * 0.15, -gap * 1.5, fl * 0.8, -gap * 1.1);
+            ctx.lineTo(-fl * 0.1, -spread * 0.5);
+            ctx.lineTo(fl * 0.1, -gap * 1.4);
             ctx.closePath();
-            ctx.fill();
-
-            // --- Lower fang (mirrored) ---
-            ctx.fillStyle = '#f0e8e0';
-            ctx.beginPath();
-            ctx.moveTo(fl, gap);
-            ctx.quadraticCurveTo(fl * 0.1, spread * 1.5, -fl * 0.4, spread);
-            ctx.lineTo(-fl * 0.3, gap * 2);
-            ctx.quadraticCurveTo(fl * 0.2, gap * 1.2, fl, gap);
-            ctx.closePath();
-            ctx.fill();
-
-            // Lower fang highlight
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-            ctx.beginPath();
             ctx.moveTo(fl * 0.8, gap * 1.1);
-            ctx.quadraticCurveTo(fl * 0.2, spread * 0.6, -fl * 0.15, spread * 0.5);
-            ctx.quadraticCurveTo(fl * 0.15, gap * 1.5, fl * 0.8, gap * 1.1);
+            ctx.lineTo(-fl * 0.1, spread * 0.5);
+            ctx.lineTo(fl * 0.1, gap * 1.4);
             ctx.closePath();
             ctx.fill();
-
-            ctx.shadowBlur = 0;
 
             // --- Venom at tips ---
             const pulse = 0.5 + Math.sin(f.wobble + now * 0.012) * 0.5;
             ctx.fillStyle = `rgba(80, 238, 68, ${0.5 + pulse * 0.5})`;
-            ctx.beginPath();
-            ctx.arc(fl + fl * 0.04, -gap, fl * 0.06, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(fl + fl * 0.04, gap, fl * 0.06, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Venom drips
-            ctx.fillStyle = `rgba(80, 255, 100, ${0.35 * pulse})`;
-            ctx.beginPath();
-            ctx.arc(fl + fl * 0.14, -gap * 0.6, fl * 0.045 * pulse, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(fl + fl * 0.14, gap * 0.6, fl * 0.045 * pulse, 0, Math.PI * 2);
-            ctx.fill();
+            const vr = fl * 0.06;
+            const vtx = fl + fl * 0.04;
+            ctx.fillRect(vtx - vr, -gap - vr, vr * 2, vr * 2);
+            ctx.fillRect(vtx - vr, gap - vr, vr * 2, vr * 2);
 
             ctx.restore();
         }

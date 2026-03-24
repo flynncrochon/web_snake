@@ -1,3 +1,5 @@
+import { play_beam_start, play_beam_tick } from '../audio/sound.js';
+
 const BEAM_RANGE = 8;
 const TICK_INTERVAL = 0.2;       // seconds between damage ticks
 const BASE_TICK_DMG = 15;        // damage per tick
@@ -15,6 +17,8 @@ export class SidewinderBeam {
         this.range_mult = 1;
         this.gorger_dmg_mult = 1;
         this.fire_cooldown_mult = 1;
+        this._curve_x = new Float64Array(128);
+        this._curve_y = new Float64Array(128);
     }
 
     get_cooldown() {
@@ -80,6 +84,7 @@ export class SidewinderBeam {
                     }
                     if (!pick) pick = candidates[i % candidates.length].enemy;
 
+                    play_beam_start();
                     this.beams.push({
                         target: pick,
                         elapsed: 0,
@@ -133,6 +138,7 @@ export class SidewinderBeam {
 
                 const is_crit = this.crit_chance > 0 && Math.random() < this.crit_chance;
                 const final_dmg = is_crit ? dmg * 2 : dmg;
+                play_beam_tick();
                 const dead = b.target.take_damage(final_dmg);
 
                 if (damage_numbers) {
@@ -162,8 +168,14 @@ export class SidewinderBeam {
             }
         }
 
-        // Remove expired beams
-        this.beams = this.beams.filter(b => b.elapsed < b.duration);
+        // Remove expired beams — in-place compaction
+        {
+            let w = 0;
+            for (let r = 0; r < this.beams.length; r++) {
+                if (this.beams[r].elapsed < this.beams[r].duration) this.beams[w++] = this.beams[r];
+            }
+            this.beams.length = w;
+        }
     }
 
     render(ctx, cell_size) {
@@ -221,97 +233,80 @@ export class SidewinderBeam {
             const wave_freq = 4 + this.level * 0.3;
             const phase = now * 0.008 + b.phase;
 
-            // Build curve points
-            const points = [];
+            // Build curve points into reusable buffers
+            const cx = this._curve_x, cy = this._curve_y;
             for (let i = 0; i <= segments; i++) {
                 const frac = i / segments;
                 const bx = ox + (tx - ox) * frac;
                 const by = oy + (ty - oy) * frac;
-                // Taper wave at endpoints
                 const taper = Math.sin(frac * Math.PI);
                 const wave = Math.sin(frac * wave_freq * Math.PI + phase) * wave_amp * taper;
-                points.push({
-                    x: bx + perp_x * wave,
-                    y: by + perp_y * wave,
-                });
+                cx[i] = bx + perp_x * wave;
+                cy[i] = by + perp_y * wave;
             }
+            const seg_count = segments + 1;
 
-            // --- Outer glow ---
-            ctx.save();
+            // Build the path once, reuse for all layers
+            const _tracePath = () => {
+                ctx.beginPath();
+                ctx.moveTo(cx[0], cy[0]);
+                for (let i = 1; i < seg_count; i++) ctx.lineTo(cx[i], cy[i]);
+            };
+
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
+
+            // --- Outer glow (layered transparency instead of shadowBlur) ---
+            ctx.globalAlpha = alpha * 0.15;
+            ctx.strokeStyle = 'rgba(68, 221, 255, 0.3)';
+            ctx.lineWidth = cell_size * 0.6;
+            _tracePath(); ctx.stroke();
+
             ctx.globalAlpha = alpha * 0.25;
             ctx.strokeStyle = '#2288cc';
             ctx.lineWidth = cell_size * 0.4;
-            ctx.shadowColor = 'rgba(68, 221, 255, 0.5)';
-            ctx.shadowBlur = cell_size * 0.5;
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, points[0].y);
-            for (let i = 1; i < points.length; i++) {
-                ctx.lineTo(points[i].x, points[i].y);
-            }
-            ctx.stroke();
-            ctx.restore();
+            _tracePath(); ctx.stroke();
 
             // --- Main beam ---
-            ctx.save();
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
             ctx.globalAlpha = alpha * 0.7;
             ctx.strokeStyle = '#44ddff';
             ctx.lineWidth = cell_size * 0.15;
-            ctx.shadowColor = 'rgba(68, 221, 255, 0.6)';
-            ctx.shadowBlur = cell_size * 0.3;
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, points[0].y);
-            for (let i = 1; i < points.length; i++) {
-                ctx.lineTo(points[i].x, points[i].y);
-            }
-            ctx.stroke();
-            ctx.restore();
+            _tracePath(); ctx.stroke();
 
             // --- Bright core ---
-            ctx.save();
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
             ctx.globalAlpha = alpha * 0.9;
             ctx.strokeStyle = '#ccffff';
             ctx.lineWidth = cell_size * 0.04;
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, points[0].y);
-            for (let i = 1; i < points.length; i++) {
-                ctx.lineTo(points[i].x, points[i].y);
-            }
-            ctx.stroke();
-            ctx.restore();
+            _tracePath(); ctx.stroke();
 
-            // --- Impact glow on target ---
+            // --- Impact glow on target (concentric circles) ---
             const pulse = 0.6 + Math.sin(now * 0.012 + b.phase) * 0.4;
             const glow_r = cell_size * 0.35 * pulse * alpha;
-            ctx.save();
             ctx.globalAlpha = alpha * 0.5;
-            const grad = ctx.createRadialGradient(tx, ty, 0, tx, ty, glow_r);
-            grad.addColorStop(0, '#ffffff');
-            grad.addColorStop(0.3, '#88eeff');
-            grad.addColorStop(1, 'rgba(68, 221, 255, 0)');
-            ctx.fillStyle = grad;
             ctx.beginPath();
             ctx.arc(tx, ty, glow_r, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(68, 221, 255, 0.08)';
             ctx.fill();
-            ctx.restore();
+            ctx.beginPath();
+            ctx.arc(tx, ty, glow_r * 0.5, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(136, 238, 255, 0.2)';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(tx, ty, glow_r * 0.15, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.fill();
 
-            // --- Source glow at head ---
+            // --- Source glow at head (concentric circles) ---
             const src_r = cell_size * 0.2 * pulse * alpha;
-            ctx.save();
             ctx.globalAlpha = alpha * 0.3;
-            const sgrad = ctx.createRadialGradient(ox, oy, 0, ox, oy, src_r);
-            sgrad.addColorStop(0, '#ccffff');
-            sgrad.addColorStop(1, 'rgba(68, 221, 255, 0)');
-            ctx.fillStyle = sgrad;
             ctx.beginPath();
             ctx.arc(ox, oy, src_r, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(68, 221, 255, 0.1)';
             ctx.fill();
-            ctx.restore();
+            ctx.beginPath();
+            ctx.arc(ox, oy, src_r * 0.3, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(204, 255, 255, 0.4)';
+            ctx.fill();
         }
     }
 
