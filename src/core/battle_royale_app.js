@@ -1966,7 +1966,8 @@ export class BattleRoyaleApp {
         const kills = this.enemy_manager ? this.enemy_manager.total_kills : 0;
         const hp = this.enemy_manager ? this.enemy_manager.player_hp : 0;
         const max_hp = 5;
-        const elapsed = Math.floor((performance.now() - this.survivors_start_time) / 1000);
+        const now = this.paused ? this.pause_start : performance.now();
+        const elapsed = Math.floor((now - this.survivors_start_time) / 1000);
         const mins = Math.floor(elapsed / 60);
         const secs = elapsed % 60;
         const time_str = `${mins}:${secs.toString().padStart(2, '0')}`;

@@ -4,6 +4,7 @@ import { SpatialGrid } from './spatial_grid.js';
 const MAX_ENEMIES = 400;
 const MAX_HEARTS = 125;
 const MAX_FOOD = 1250;
+const HP_FACTOR = 10;
 
 export class EnemyManager {
     constructor(arena_size) {
@@ -31,12 +32,12 @@ export class EnemyManager {
 
         const t = Math.min(mins / 20, 1); // 0..1 over 20 minutes
         const fast = Math.pow(t, 0.6);    // ramps up quicker early/mid-game
-        const level_scale = 1 + (this.player_level - 1) * 0.05; // +5% HP per level
+        const base_hp = (1 + Math.floor(t * 26)) * 100;
         return {
             spawn_interval: Math.max(300, 2000 - fast * 1700),
             spawn_count: Math.floor(2 + fast * 13),
             speed: 1.5 + fast * 6,
-            hp: Math.round((1 + Math.floor(t * 26)) * 100 * level_scale),
+            hp: base_hp + this.player_level * HP_FACTOR,
             length: Math.min(9, 1 + Math.floor(t * 8)),
         };
     }
@@ -62,11 +63,10 @@ export class EnemyManager {
             this.spawn_splitter(head.x + 0.5, head.y + 0.5, player_snake, arena.food);
         }
 
-        // Spawn boss every 3 minutes, after 2 minutes of gameplay
-        const elapsed_ms = performance.now() - this.game_start_time;
+        // Spawn boss every 1:30
         this.boss_accum += dt * 1000;
         const has_boss = this.enemies.some(e => e.is_boss && e.alive);
-        if (elapsed_ms >= 120000 && this.boss_accum >= 180000 && !has_boss && this.enemies.length < MAX_ENEMIES) {
+        if (this.boss_accum >= 90000 && !has_boss && this.enemies.length < MAX_ENEMIES) {
             this.boss_accum = 0;
             this.spawn_boss(head.x + 0.5, head.y + 0.5, player_snake, arena.food);
         }
@@ -366,8 +366,7 @@ export class EnemyManager {
             const key = gx + ',' + gy;
             if (!occupied.has(key) && !(this.excluded_region && this.excluded_region.has(key))) {
                 // Gen 1: big, slow, tanky, length 5
-                const ls = 1 + (this.player_level - 1) * 0.05;
-                this.enemies.push(new Enemy(x, y, 1.2, Math.round(600 * ls), 5, 1));
+                this.enemies.push(new Enemy(x, y, 1.2, 600 + this.player_level * HP_FACTOR, 5, 1));
                 return;
             }
         }
@@ -398,8 +397,7 @@ export class EnemyManager {
             const key = gx + ',' + gy;
             if (!occupied.has(key) && !(this.excluded_region && this.excluded_region.has(key))) {
                 // Boss: slow, very tanky, 8 segments long
-                const ls = 1 + (this.player_level - 1) * 0.05;
-                this.enemies.push(new Enemy(x, y, 1.0, Math.round(5000 * ls), 8, 0, true));
+                this.enemies.push(new Enemy(x, y, 1.0, 5000 + this.player_level * HP_FACTOR, 8, 0, true));
                 return;
             }
         }
@@ -413,12 +411,11 @@ export class EnemyManager {
             e._split_done = true; // prevent re-splitting on subsequent frames
 
             const next_gen = e.splitter_gen + 1;
-            const ls = 1 + (this.player_level - 1) * 0.05;
             let hp, length, speed;
             if (next_gen === 2) {
-                hp = Math.round(300 * ls); length = 3; speed = 1.5;
+                hp = 300 + this.player_level * HP_FACTOR; length = 3; speed = 1.5;
             } else {
-                hp = Math.round(150 * ls); length = 1; speed = 1.8;
+                hp = 150 + this.player_level * HP_FACTOR; length = 1; speed = 1.8;
             }
 
             // Spawn 2 children offset from the parent's death position
