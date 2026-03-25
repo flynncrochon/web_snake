@@ -38,6 +38,8 @@ import { TongueLash } from '../survivors/tongue_lash.js';
 import { SerpentsReckoning } from '../survivors/serpents_reckoning.js';
 import { ChestLottery } from '../survivors/chest_lottery.js';
 import { GreySnakeManager } from '../survivors/grey_snake.js';
+import { SerpentScales } from '../survivors/serpent_scales.js';
+import { Ouroboros } from '../survivors/ouroboros.js';
 import { get_powerup_icon } from '../rendering/powerup_icons.js';
 
 const AI_COLORS = [
@@ -55,6 +57,7 @@ const INVULN_DURATION = 2000;
 const VS_INVULN_DURATION = 3000;
 
 const VS_POWERUP_DEFS = [
+    { id: 'venom_shot',  name: 'Venom Shot',  description: 'Auto-fire venom projectiles at nearby enemies', max_rank: 8, category: 'weapon' },
     { id: 'magnet',      name: 'Graviton',    description: '+1 fruit pickup radius', max_rank: 8, category: 'effect' },
     { id: 'atk_speed',   name: 'Rapid Fire',   description: '+15% attack speed', max_rank: 8, category: 'effect' },
     { id: 'crit',        name: 'Dead Eye',     description: '+12.5% crit chance (2× dmg)', max_rank: 8, category: 'effect' },
@@ -72,6 +75,7 @@ const VS_POWERUP_DEFS = [
     { id: 'ricochet',   name: 'Ricochet Fang',  description: 'Bouncing fang that chains between enemies — damage ramps per bounce', max_rank: 8, category: 'weapon' },
     { id: 'cobra_pit',  name: 'Cobra Pit',      description: 'Lob a pit that spawns spitting cobras to guard an area', max_rank: 8, category: 'weapon' },
     { id: 'tongue_lash', name: 'Tongue Lash',   description: 'Quick forked tongue whip — hits enemies in a cone and slows them', max_rank: 8, category: 'weapon' },
+    { id: 'serpent_scales', name: "Serpent's Scales", description: 'Shield absorbs enemy hits — more ranks = more charges, shorter cooldown', max_rank: 8, category: 'effect' },
 ];
 
 const VS_EVOLUTION_DEFS = [
@@ -83,6 +87,7 @@ const VS_EVOLUTION_DEFS = [
     { id: 'shatter_fang', name: 'Shatter Fang', description: 'Crits shatter the fang into splinters that chain and shatter again', requires: ['ricochet', 'crit'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
     { id: 'ancient_brood_pit', name: 'Ancient Brood Pit', description: 'Ever-expanding pit spawns ancient cobras across a growing territory', requires: ['cobra_pit', 'chronofield'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
     { id: 'serpents_reckoning', name: "Serpent's Reckoning", description: 'Grapple tongue latches onto distant enemies and drags them back through the crowd', requires: ['tongue_lash', 'weapon_range'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
+    { id: 'ouroboros', name: 'Ouroboros', description: 'Fangs orbit in a rotating ring of scales — passive damage aura replaces base shot', requires: ['serpent_scales', 'venom_shot'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
 ];
 
 // Map: base weapon ID → evolution ID that replaces it
@@ -152,9 +157,11 @@ export class BattleRoyaleApp {
         this.vs_level_up_choices = [];
         this.vs_level_up_index = 0;
         this.vs_level_up_queue = [];
-        this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0, venom_nova: 0, blast_radius: 0, weapon_range: 0, sidewinder: 0, ricochet: 0, cobra_pit: 0, tongue_lash: 0, miasma: 0, hydra_brood: 0, serpent_gatling: 0, consumption_beam: 0, singularity_mortar: 0, shatter_fang: 0, ancient_brood_pit: 0, serpents_reckoning: 0 };
+        this.vs_powerups = { venom_shot: 1, magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0, venom_nova: 0, blast_radius: 0, weapon_range: 0, sidewinder: 0, ricochet: 0, cobra_pit: 0, tongue_lash: 0, serpent_scales: 0, miasma: 0, hydra_brood: 0, serpent_gatling: 0, consumption_beam: 0, singularity_mortar: 0, shatter_fang: 0, ancient_brood_pit: 0, serpents_reckoning: 0, ouroboros: 0 };
         this.vs_invuln_start = 0;
         this.vs_self_collision_freeze = 0;
+        this.serpent_scales = null;
+        this.ouroboros = null;
         this.poison_mortar = null;
         this.snake_nest = null;
         this.fang_barrage = null;
@@ -391,26 +398,26 @@ export class BattleRoyaleApp {
                     this._perf_overlay = !this._perf_overlay;
                     return;
                 }
-                if (this.mode === 'survivors' && action === 'debug_menu') {
-                    // TEMP DISABLED: debug menu
-                    // this.vs_debug_menu_active = !this.vs_debug_menu_active;
-                    // this.vs_debug_menu_index = 0;
-                    return;
-                }
-                if (this.vs_debug_menu_active) {
-                    const all_defs = [...VS_POWERUP_DEFS, ...VS_EVOLUTION_DEFS];
-                    if (action === 'menu_up') {
-                        this.vs_debug_menu_index = (this.vs_debug_menu_index - 1 + all_defs.length) % all_defs.length;
-                    } else if (action === 'menu_down') {
-                        this.vs_debug_menu_index = (this.vs_debug_menu_index + 1) % all_defs.length;
-                    } else if (action === 'enter' || action === 'space') {
-                        const def = all_defs[this.vs_debug_menu_index];
-                        this.apply_powerup(def.id);
-                    } else if (action === 'escape') {
-                        this.vs_debug_menu_active = false;
-                    }
-                    return;
-                }
+                // TEMP REMOVED: debug menu
+                // if (this.mode === 'survivors' && action === 'debug_menu') {
+                //     this.vs_debug_menu_active = !this.vs_debug_menu_active;
+                //     this.vs_debug_menu_index = 0;
+                //     return;
+                // }
+                // if (this.vs_debug_menu_active) {
+                //     const all_defs = [...VS_POWERUP_DEFS, ...VS_EVOLUTION_DEFS];
+                //     if (action === 'menu_up') {
+                //         this.vs_debug_menu_index = (this.vs_debug_menu_index - 1 + all_defs.length) % all_defs.length;
+                //     } else if (action === 'menu_down') {
+                //         this.vs_debug_menu_index = (this.vs_debug_menu_index + 1) % all_defs.length;
+                //     } else if (action === 'enter' || action === 'space') {
+                //         const def = all_defs[this.vs_debug_menu_index];
+                //         this.apply_powerup(def.id);
+                //     } else if (action === 'escape') {
+                //         this.vs_debug_menu_active = false;
+                //     }
+                //     return;
+                // }
                 if (action === 'space' || action === 'escape') {
                     this.toggle_pause();
                     return;
@@ -529,6 +536,7 @@ export class BattleRoyaleApp {
             this.renderer.logical_width, this.renderer.logical_height);
         this.enemy_manager = new EnemyManager(VS_ARENA_SIZE);
         this.bullet_manager = new BulletManager();
+        this.bullet_manager.level = 1;
         this.damage_numbers = new DamageNumberSystem();
         this.poison_mortar = new PoisonMortar();
         this.snake_nest = new SnakeNest();
@@ -547,6 +555,8 @@ export class BattleRoyaleApp {
         this.ancient_brood_pit = new AncientBroodPit();
         this.tongue_lash = new TongueLash();
         this.serpents_reckoning = new SerpentsReckoning();
+        this.serpent_scales = new SerpentScales();
+        this.ouroboros = new Ouroboros();
         this.grey_snake = new GreySnakeManager(VS_ARENA_SIZE);
         this.vs_lottery_active = false;
 
@@ -568,7 +578,7 @@ export class BattleRoyaleApp {
         this.vs_level_up_choices = [];
         this.vs_level_up_index = 0;
         this.vs_level_up_queue = [];
-        this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0, venom_nova: 0, blast_radius: 0, weapon_range: 0, sidewinder: 0, ricochet: 0, cobra_pit: 0, tongue_lash: 0, miasma: 0, hydra_brood: 0, serpent_gatling: 0, consumption_beam: 0, singularity_mortar: 0, shatter_fang: 0, ancient_brood_pit: 0, serpents_reckoning: 0 };
+        this.vs_powerups = { venom_shot: 1, magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0, venom_nova: 0, blast_radius: 0, weapon_range: 0, sidewinder: 0, ricochet: 0, cobra_pit: 0, tongue_lash: 0, serpent_scales: 0, miasma: 0, hydra_brood: 0, serpent_gatling: 0, consumption_beam: 0, singularity_mortar: 0, shatter_fang: 0, ancient_brood_pit: 0, serpents_reckoning: 0, ouroboros: 0 };
         this.vs_invuln_start = 0;
         this.vs_self_collision_freeze = 0;
         this.vs_resume_countdown_start = 0;
@@ -750,7 +760,7 @@ export class BattleRoyaleApp {
     update_survivors() {
         if (this._perf_overlay) this._perf_timings = {};
         if (this.vs_level_up_active) return;
-        if (this.vs_debug_menu_active) return;
+        // TEMP REMOVED: if (this.vs_debug_menu_active) return;
 
         // Lottery animation runs even while game is "paused" for it
         if (this.vs_lottery_active && this.chest_lottery) {
@@ -783,10 +793,13 @@ export class BattleRoyaleApp {
         const vs_immune = this.vs_invuln_start > 0 && now - this.vs_invuln_start < vs_invuln_dur;
         this.enemy_manager.excluded_region = this.enclosed_region;
         this.enemy_manager.player_level = this.vs_level;
+        this.enemy_manager.shield = this.serpent_scales;
 
         this._perf_time('U:enemies', () => this.enemy_manager.update(dt, snake, this.arena, this.particles, cell, this.damage_numbers, vs_immune));
 
-        this._perf_time('U:bullets', () => this.bullet_manager.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers));
+        this._perf_time('U:bullets', () => {
+            if (!this.vs_powerups.ouroboros) this.bullet_manager.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+        });
 
         this._perf_time('U:weapons1', () => {
             if (this.poison_mortar) this.poison_mortar.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
@@ -811,6 +824,8 @@ export class BattleRoyaleApp {
             if (this.shatter_fang) this.shatter_fang.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
             if (this.tongue_lash) this.tongue_lash.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
             if (this.serpents_reckoning) this.serpents_reckoning.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
+            if (this.serpent_scales) this.serpent_scales.update(dt);
+            if (this.ouroboros) this.ouroboros.update(dt, snake, this.enemy_manager, this.arena, this.particles, cell, this.damage_numbers);
         });
 
         this._perf_time('U:grey_snake', () => {
@@ -1039,7 +1054,7 @@ export class BattleRoyaleApp {
                         if (p.max_rank && this.vs_powerups[p.id] >= p.max_rank) return false;
                         if (WEAPON_TO_EVOLUTION[p.id] && this.vs_powerups[WEAPON_TO_EVOLUTION[p.id]] > 0) return false;
                         if (this.vs_powerups[p.id] === 0) {
-                            if (p.category === 'weapon' && owned_weapons >= 4) return false;
+                            if (p.category === 'weapon' && owned_weapons >= 5) return false;
                             if (p.category === 'effect' && owned_effects >= 4) return false;
                         }
                         return true;
@@ -1608,7 +1623,7 @@ export class BattleRoyaleApp {
 
         this._perf_time('enemies', () => this.survivors_renderer.render_enemies(ctx, this.enemy_manager.enemies, cell, this.camera));
 
-        if (this.bullet_manager) {
+        if (this.bullet_manager && !this.vs_powerups.ouroboros) {
             this._perf_time('bullets', () => this.survivors_renderer.render_bullets(ctx, this.bullet_manager.bullets, cell, this.camera));
         }
 
@@ -1625,6 +1640,9 @@ export class BattleRoyaleApp {
                     color = Math.floor(now / 80) % 2 === 0 ? '#f44' : '#fff';
                 }
                 this.snake_renderer.render(ctx, this.player_snake.segments, cell, t, color, 1.0, cox, coy);
+                if (this.serpent_scales && this.serpent_scales.charges > 0) {
+                    this.serpent_scales.render(ctx, this.player_snake.segments, cell, t, cox, coy, now);
+                }
             }
         });
 
@@ -1640,6 +1658,7 @@ export class BattleRoyaleApp {
             if (this.serpent_gatling) this.serpent_gatling.render(ctx, cell);
             if (this.ricochet_fang) this.ricochet_fang.render(ctx, cell);
             if (this.shatter_fang) this.shatter_fang.render(ctx, cell);
+            if (this.ouroboros) this.ouroboros.render_tracking(ctx, cell);
         });
 
         this._perf_time('cobras', () => {
@@ -1657,6 +1676,7 @@ export class BattleRoyaleApp {
         this._perf_time('nova+miasma', () => {
             if (this.venom_nova) this.venom_nova.render(ctx, cell);
             if (this.miasma) this.miasma.render(ctx, cell, interp_hx, interp_hy);
+            if (this.ouroboros) this.ouroboros.render(ctx, cell, interp_hx, interp_hy);
         });
 
         this._perf_time('particles', () => this.particles.render(ctx));
@@ -1694,9 +1714,10 @@ export class BattleRoyaleApp {
             this.chest_lottery.render_lottery(hctx, cell, w, h);
         }
 
-        if (this.vs_debug_menu_active) {
-            this.render_debug_menu(hctx, w, h);
-        }
+        // TEMP REMOVED: debug menu rendering
+        // if (this.vs_debug_menu_active) {
+        //     this.render_debug_menu(hctx, w, h);
+        // }
 
         if (this.vs_evo_menu_active) {
             this.render_evolution_menu(hctx, w, h);
@@ -2071,7 +2092,8 @@ export class BattleRoyaleApp {
         const icon_gap = 4;
         const box_size = icon_size + 4;
         const box_gap = icon_gap;
-        const max_slots = 4;
+        const max_weapon_slots = 5;
+        const max_effect_slots = 4;
         const all_defs = [...VS_POWERUP_DEFS, ...VS_EVOLUTION_DEFS];
         const row_height = box_size + 14;
 
@@ -2090,7 +2112,7 @@ export class BattleRoyaleApp {
 
         // Top row: weapons
         const weapon_y = 68;
-        for (let i = 0; i < max_slots; i++) {
+        for (let i = 0; i < max_weapon_slots; i++) {
             const bx = 12 + i * (box_size + box_gap);
             ctx.strokeStyle = '#444';
             ctx.lineWidth = 1;
@@ -2115,7 +2137,7 @@ export class BattleRoyaleApp {
 
         // Bottom row: effects
         const effect_y = weapon_y + row_height;
-        for (let i = 0; i < max_slots; i++) {
+        for (let i = 0; i < max_effect_slots; i++) {
             const bx = 12 + i * (box_size + box_gap);
             ctx.strokeStyle = '#444';
             ctx.lineWidth = 1;
@@ -2183,6 +2205,17 @@ export class BattleRoyaleApp {
     get_powerup_desc(id) {
         const lvl = this.vs_powerups[id];
         switch (id) {
+            case 'venom_shot': {
+                const cur_dmg = 125 + (lvl - 1) * 20;
+                const next_dmg = 125 + lvl * 20;
+                const cur_cd = Math.max(180, 400 - (lvl - 1) * 30);
+                const next_cd = Math.max(180, 400 - lvl * 30);
+                const cur_extra = Math.floor((lvl - 1) / 3);
+                const next_extra = Math.floor(lvl / 3);
+                let desc = `Dmg: ${cur_dmg}\u2192${next_dmg} | CD: ${(cur_cd / 1000).toFixed(2)}s\u2192${(next_cd / 1000).toFixed(2)}s`;
+                if (next_extra > cur_extra) desc += ' | +1 projectile';
+                return desc;
+            }
             case 'magnet':
                 return `Pickup radius: ${1 + lvl} \u2192 ${2 + lvl} cells`;
             case 'atk_speed': {
@@ -2295,6 +2328,8 @@ export class BattleRoyaleApp {
                 return 'Crits shatter fangs into 3 splinters that chain and shatter again — up to 3 generations deep';
             case 'ancient_brood_pit':
                 return 'Ever-expanding pit endlessly spawns ancient cobras — 120 dmg spit, pit grows over time';
+            case 'ouroboros':
+                return 'Orbiting fang ring — 200 raw dmg per hit, no knockback, replaces Venom Shot + Scales';
             default: return '';
         }
     }
@@ -2316,6 +2351,8 @@ export class BattleRoyaleApp {
         const range_mult = 1 + this.vs_powerups.weapon_range * 0.12;
         const fire_cd_mult = Math.pow(0.85, this.vs_powerups.atk_speed);
         if (this.bullet_manager) {
+            this.bullet_manager.level = this.vs_powerups.ouroboros ? 0 : this.vs_powerups.venom_shot;
+            if (this.vs_powerups.ouroboros && this.bullet_manager.level === 0) this.bullet_manager.clear();
             this.bullet_manager.fire_cooldown_mult = fire_cd_mult;
             this.bullet_manager.crit_chance = this.vs_powerups.crit * 0.125;
             this.bullet_manager.gorger_dmg_mult = gorger_dmg_mult;
@@ -2475,6 +2512,16 @@ export class BattleRoyaleApp {
             this.serpents_reckoning.radius_mult = radius_mult;
             this.serpents_reckoning.duration_mult = dur_mult;
             this.serpents_reckoning.fire_cooldown_mult = fire_cd_mult;
+        }
+        if (this.serpent_scales) {
+            this.serpent_scales.set_level(this.vs_powerups.serpent_scales);
+        }
+        if (this.ouroboros && this.vs_powerups.ouroboros) {
+            this.ouroboros.active = true;
+            this.ouroboros.crit_chance = this.vs_powerups.crit * 0.125;
+            this.ouroboros.gorger_dmg_mult = gorger_dmg_mult;
+            this.ouroboros.fire_cd_mult = fire_cd_mult;
+            this.ouroboros.extra_projectiles = extra;
         }
     }
 

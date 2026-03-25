@@ -164,10 +164,18 @@ export class EnemyManager {
                 if (si === 0) {
                     // Boss or normal hitting player head: damage player
                     if (!this.player_i_frames) {
-                        this.player_hp--;
-                        this.player_i_frames = 30;
-                        if (particles) {
-                            particles.emit((pseg.x + 0.5) * cell_size, (pseg.y + 0.5) * cell_size, 6, '#f00', 3);
+                        if (this.shield && this.shield.absorb_hit()) {
+                            // Shield absorbed the hit
+                            this.player_i_frames = 15;
+                            if (particles) {
+                                particles.emit((pseg.x + 0.5) * cell_size, (pseg.y + 0.5) * cell_size, 8, '#50b4ff', 3);
+                            }
+                        } else {
+                            this.player_hp--;
+                            this.player_i_frames = 30;
+                            if (particles) {
+                                particles.emit((pseg.x + 0.5) * cell_size, (pseg.y + 0.5) * cell_size, 6, '#f00', 3);
+                            }
                         }
                     }
                 } else if (e.is_boss && ei === 0) {

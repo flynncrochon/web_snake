@@ -2,16 +2,19 @@ import { play_fang_fire, play_fang_hit } from '../audio/sound.js';
 import { Bullet } from './bullet.js';
 
 const MAX_BULLETS = 40;
-const FIRE_COOLDOWN = 400;
+const BASE_COOLDOWN = 400;
 const FANG_SPREAD = 0.3; // perpendicular offset for the two fangs
-const FIRE_RANGE = 8;
+const FANG_ANGLE = Math.PI / 4; // 45° offset from facing direction
+const COS_FANG = Math.cos(FANG_ANGLE);
+const SIN_FANG = Math.sin(FANG_ANGLE);
+const FIRE_RANGE = 30;
 const FIRE_RANGE_SQ = FIRE_RANGE * FIRE_RANGE;
-const FANG_CONE_COS = Math.cos(Math.PI / 4); // 45° half-angle = 90° forward cone
 
 export class BulletManager {
     constructor() {
         this.bullets = [];
         this.last_fire_time = 0;
+        this.level = 0;
         this.fire_cooldown_mult = 1.0;
         this.crit_chance = 0;
         this.gorger_dmg_mult = 1;
@@ -20,6 +23,10 @@ export class BulletManager {
     }
 
     update(dt, snake, enemy_manager, arena, particles, cell_size, damage_numbers) {
+        // Level-based scaling
+        const level = this.level;
+        const level_extra = level > 0 ? Math.floor((level - 1) / 3) : 0;
+
         const head = snake.head;
         const hx = head.x + 0.5;
         const hy = head.y + 0.5;
@@ -29,11 +36,13 @@ export class BulletManager {
         const face_dy = snake.direction.dy;
 
         const now = performance.now();
-        const cooldown = FIRE_COOLDOWN * this.fire_cooldown_mult;
-        const volley_size = 2 + this.extra_projectiles;
+        const base_cd = Math.max(180, BASE_COOLDOWN - (level - 1) * 30);
+        const cooldown = base_cd * this.fire_cooldown_mult;
+        const total_extra = level_extra + this.extra_projectiles;
+        const volley_size = 2 + total_extra;
         const eff_range = FIRE_RANGE * this.range_mult;
         const eff_range_sq = eff_range * eff_range;
-        if (now - this.last_fire_time >= cooldown && this.bullets.length + volley_size <= MAX_BULLETS) {
+        if (level > 0 && now - this.last_fire_time >= cooldown && this.bullets.length + volley_size <= MAX_BULLETS) {
             let nearest = null;
             let best_dist = Infinity;
             enemy_manager.query_radius(hx, hy, eff_range, (e) => {
@@ -41,32 +50,39 @@ export class BulletManager {
                 const dy = e.y - hy;
                 const d = dx * dx + dy * dy;
                 if (d < 0.01) return;
-                const len = Math.sqrt(d);
-                const dot = (dx * face_dx + dy * face_dy) / len;
-                if (dot < FANG_CONE_COS) return;
                 if (d < best_dist) {
                     best_dist = d;
                     nearest = e;
                 }
             });
             if (nearest) {
-                // Aim toward the enemy — both fangs will home in
+                // Fire fangs at ±45° from the snake's facing direction, then home toward target
+                // +45° rotated facing direction
+                const ldx = face_dx * COS_FANG - face_dy * SIN_FANG;
+                const ldy = face_dx * SIN_FANG + face_dy * COS_FANG;
+                // -45° rotated facing direction
+                const rdx = face_dx * COS_FANG + face_dy * SIN_FANG;
+                const rdy = -face_dx * SIN_FANG + face_dy * COS_FANG;
+                // Perpendicular for spread offset (based on aim-to-enemy for positioning)
                 const dx = nearest.x - hx;
                 const dy = nearest.y - hy;
                 const len = Math.sqrt(dx * dx + dy * dy);
                 const ndx = dx / len;
                 const ndy = dy / len;
-                // Perpendicular for spread offset
                 const px = -ndy * FANG_SPREAD;
                 const py = ndx * FANG_SPREAD;
-                this.bullets.push(new Bullet(hx + px, hy + py, ndx, ndy, nearest));
-                this.bullets.push(new Bullet(hx - px, hy - py, ndx, ndy, nearest));
-                // Extra projectiles from Coiled Volley — spread evenly between the two base fangs
-                for (let i = 0; i < this.extra_projectiles; i++) {
-                    const t = (i + 1) / (this.extra_projectiles + 1);
-                    const ox = px * (1 - 2 * t); // interpolate from +px to -px
+                this.bullets.push(new Bullet(hx + px, hy + py, ldx, ldy));
+                this.bullets.push(new Bullet(hx - px, hy - py, rdx, rdy));
+                // Extra projectiles from level + Coiled Volley — spread evenly between the two angles
+                for (let i = 0; i < total_extra; i++) {
+                    const t = (i + 1) / (total_extra + 1);
+                    const ox = px * (1 - 2 * t);
                     const oy = py * (1 - 2 * t);
-                    this.bullets.push(new Bullet(hx + ox, hy + oy, ndx, ndy, nearest));
+                    // Interpolate direction between left and right fang angles
+                    const edx = ldx + (rdx - ldx) * t;
+                    const edy = ldy + (rdy - ldy) * t;
+                    const elen = Math.sqrt(edx * edx + edy * edy);
+                    this.bullets.push(new Bullet(hx + ox, hy + oy, edx / elen, edy / elen));
                 }
                 this.last_fire_time = now;
                 play_fang_fire();
@@ -97,7 +113,8 @@ export class BulletManager {
                     b.alive = false;
                     play_fang_hit();
                     const is_crit = this.crit_chance > 0 && Math.random() < this.crit_chance;
-                    const dmg = Math.round((is_crit ? 2 : 1) * 125 * this.gorger_dmg_mult);
+                    const base_dmg = 125 + (level - 1) * 20;
+                    const dmg = Math.round((is_crit ? 2 : 1) * base_dmg * this.gorger_dmg_mult);
                     const dead = e.take_damage(dmg);
                     if (damage_numbers) {
                         damage_numbers.emit(e.x, e.y - e.radius, dmg, is_crit);

@@ -5,6 +5,17 @@ const ICON_SIZE = 64;
 const S = `xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"`;
 
 const SVG_DEFS = {
+    // Venom Shot — venom droplet projectile
+    venom_shot: `<svg ${S}>
+        <path d="M32 8 Q22 28 22 38 A10 10 0 0 0 42 38 Q42 28 32 8 Z" fill="#00cc33" opacity="0.9"/>
+        <path d="M32 12 Q26 28 26 36 A6 6 0 0 0 38 36 Q38 28 32 12 Z" fill="#33ff66" opacity="0.5"/>
+        <circle cx="30" cy="34" r="2" fill="#fff" opacity="0.6"/>
+        <path d="M18 20 L12 16" stroke="#00cc33" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+        <path d="M46 20 L52 16" stroke="#00cc33" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+        <path d="M20 28 L14 26" stroke="#00cc33" stroke-width="1.5" stroke-linecap="round" opacity="0.3"/>
+        <path d="M44 28 L50 26" stroke="#00cc33" stroke-width="1.5" stroke-linecap="round" opacity="0.3"/>
+    </svg>`,
+
     // Graviton — magnetic pull field
     magnet: `<svg ${S}>
         <path d="M20 16 L20 36 A12 12 0 0 0 44 36 L44 16" fill="none" stroke="#668fff" stroke-width="6" stroke-linecap="round"/>
@@ -393,6 +404,16 @@ const SVG_DEFS = {
         <circle cx="32" cy="8" r="1.5" fill="#88ccff" opacity="0.5"/>
     </svg>`,
 
+    // Serpent's Scales — shield with scale pattern
+    serpent_scales: `<svg ${S}>
+        <path d="M32 8 L48 18 L48 34 Q48 50 32 56 Q16 50 16 34 L16 18 Z" fill="#1a5a8a" stroke="#50b4ff" stroke-width="2"/>
+        <path d="M32 14 L42 20 L42 34 Q42 44 32 50 Q22 44 22 34 L22 20 Z" fill="#2a7ab0" opacity="0.4"/>
+        <line x1="24" y1="26" x2="40" y2="26" stroke="#0e3d5e" stroke-width="1.5" opacity="0.5"/>
+        <line x1="22" y1="34" x2="42" y2="34" stroke="#0e3d5e" stroke-width="1.5" opacity="0.5"/>
+        <line x1="24" y1="42" x2="40" y2="42" stroke="#0e3d5e" stroke-width="1.5" opacity="0.5"/>
+        <circle cx="32" cy="32" r="18" fill="none" stroke="#50b4ff" stroke-width="1" opacity="0.3"/>
+    </svg>`,
+
     // Shatter Fang — cracking diamond that explodes into splinters
     shatter_fang: `<svg ${S}>
         <!-- Central cracking diamond fang -->
@@ -475,6 +496,34 @@ const SVG_DEFS = {
         <circle cx="12" cy="48" r="3" fill="#ffaacc" opacity="0.5"/>
         <!-- Stun stars on grabbed enemy -->
         <path d="M58 10 L59 12 L61 12 L59.5 13.5 L60.5 16 L58 14 L55.5 16 L56.5 13.5 L55 12 L57 12 Z" fill="#ffcc44" opacity="0.6"/>
+    </svg>`,
+
+    // Ouroboros — rotating ring of green fang-scales pointing outward, orbiting a serpent eye
+    ouroboros: `<svg ${S}>
+        <!-- Orbit ring -->
+        <circle cx="32" cy="32" r="22" fill="none" stroke="#22cc44" stroke-width="3" opacity="0.3"/>
+        <circle cx="32" cy="32" r="22" fill="none" stroke="#66ff88" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.5"/>
+        <!-- Orbiting fangs (6 around the ring, pointing outward) -->
+        <polygon points="32,4 28,12 36,12" fill="#22cc44"/>
+        <polygon points="53,15 46,20 50,26" fill="#22cc44"/>
+        <polygon points="53,49 50,38 46,44" fill="#22cc44"/>
+        <polygon points="32,60 36,52 28,52" fill="#22cc44"/>
+        <polygon points="11,49 18,44 14,38" fill="#22cc44"/>
+        <polygon points="11,15 14,26 18,20" fill="#22cc44"/>
+        <!-- Fang highlights -->
+        <polygon points="32,6 30,11 34,11" fill="#88ff99" opacity="0.6"/>
+        <polygon points="51,17 48,21 49,25" fill="#88ff99" opacity="0.6"/>
+        <polygon points="51,47 49,40 48,43" fill="#88ff99" opacity="0.6"/>
+        <polygon points="32,58 34,53 30,53" fill="#88ff99" opacity="0.6"/>
+        <polygon points="13,47 16,43 15,39" fill="#88ff99" opacity="0.6"/>
+        <polygon points="13,17 15,25 16,21" fill="#88ff99" opacity="0.6"/>
+        <!-- Central serpent eye -->
+        <circle cx="32" cy="32" r="8" fill="#0a2218"/>
+        <circle cx="32" cy="32" r="6" fill="#143828"/>
+        <ellipse cx="32" cy="32" rx="2" ry="5" fill="#44ff66"/>
+        <ellipse cx="32" cy="32" rx="1" ry="4" fill="#ccffdd" opacity="0.7"/>
+        <!-- Core glow -->
+        <circle cx="32" cy="32" r="10" fill="none" stroke="#44ff66" stroke-width="1" opacity="0.3"/>
     </svg>`,
 };
 

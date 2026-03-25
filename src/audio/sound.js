@@ -355,3 +355,37 @@ export function play_roulette_settle() {
     o3.connect(g3); g3.connect(ac.destination);
     o3.start(t + 0.15); o3.stop(t + 0.45);
 }
+
+// ---- Ouroboros hit (metallic scale scrape) ----
+
+export function play_ouroboros_hit() {
+    throttled('ouroboros_hit', 80, () => {
+        const ac = get_ctx();
+        if (ac.state === 'suspended') ac.resume();
+        const osc = make_osc(ac, 'sawtooth', 600, 0.35, 0.06);
+        osc.frequency.exponentialRampToValueAtTime(300, ac.currentTime + 0.05);
+        make_noise(ac, 0.2, 0.03);
+    });
+}
+
+// ---- Ouroboros ambient hum (low rotating drone, throttled heavily) ----
+
+export function play_ouroboros_hum() {
+    throttled('ouroboros_hum', 600, () => {
+        const ac = get_ctx();
+        if (ac.state === 'suspended') ac.resume();
+        const osc = make_osc(ac, 'sine', 120, 0.15, 0.4);
+        osc.frequency.exponentialRampToValueAtTime(90, ac.currentTime + 0.35);
+    });
+}
+
+// ---- Ouroboros pulse (soft satisfying chime) ----
+
+export function play_ouroboros_burst() {
+    throttled('ouroboros_burst', 300, () => {
+        const ac = get_ctx();
+        if (ac.state === 'suspended') ac.resume();
+        make_osc(ac, 'sine', 520, 0.15, 0.18);
+        make_osc(ac, 'triangle', 780, 0.08, 0.12);
+    });
+}
