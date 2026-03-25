@@ -32,7 +32,7 @@ export class TongueLash {
     }
 
     get_damage() {
-        return (1 + Math.floor(this.level / 2)) * 80;
+        return (1 + Math.floor(this.level / 2)) * 150;
     }
 
     get_lash_count() {
@@ -52,9 +52,15 @@ export class TongueLash {
         const face_dy = snake.direction.dy;
 
         if (now - this.last_lash >= this.get_cooldown()) {
-            play_lash();
             const range = this.get_range();
             const dmg_base = this.get_damage();
+
+            // Only activate when an enemy is actually nearby
+            let has_nearby = false;
+            enemy_manager.query_radius(hx, hy, range, () => { has_nearby = true; });
+            if (has_nearby) {
+
+            play_lash();
             const lash_count = this.get_lash_count();
             const cone_half = CONE_HALF_ANGLE * this.radius_mult;
             const cone_cos = Math.cos(Math.min(cone_half, Math.PI));
@@ -124,8 +130,8 @@ export class TongueLash {
                             particles.emit(e.x * cell_size, e.y * cell_size, 8, e.color, 3);
                         }
                     } else {
-                        // Knockback away from head
-                        const kb = 0.4;
+                        // Knockback — push enemy away from head
+                        const kb = 3.2;
                         e.x += (ex / dist) * kb;
                         e.y += (ey / dist) * kb;
                     }
@@ -141,6 +147,7 @@ export class TongueLash {
             }
 
             this.last_lash = now;
+            } // has_nearby
         }
 
         // --- Update lash visuals ---

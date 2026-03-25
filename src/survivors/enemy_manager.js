@@ -55,12 +55,17 @@ export class EnemyManager {
             this.spawn_wave(head.x + 0.5, head.y + 0.5, diff.spawn_count, diff.speed, diff.hp, diff.length, player_snake, arena.food);
         }
 
-        // Spawn splitter enemies periodically (every ~20s, scaling down to ~12s)
-        const splitter_interval = Math.max(12000, 20000 - diff.speed * 1500);
+        // Spawn splitter enemies periodically (every ~20s, scaling down to ~5s)
+        const elapsed_mins = (performance.now() - this.game_start_time) / 60000;
+        const splitter_t = Math.min(elapsed_mins / 20, 1);
+        const splitter_interval = Math.max(5000, 20000 - splitter_t * 15000);
+        const splitter_count = 1 + Math.floor(splitter_t * 3); // 1 -> 4 over 20 min
         this.splitter_accum += dt * 1000;
         if (this.splitter_accum >= splitter_interval && this.enemies.length < MAX_ENEMIES) {
             this.splitter_accum = 0;
-            this.spawn_splitter(head.x + 0.5, head.y + 0.5, player_snake, arena.food);
+            for (let i = 0; i < splitter_count && this.enemies.length < MAX_ENEMIES; i++) {
+                this.spawn_splitter(head.x + 0.5, head.y + 0.5, player_snake, arena.food);
+            }
         }
 
         // Spawn boss every 1:30
@@ -186,8 +191,10 @@ export class EnemyManager {
                             }
                         }
                     }
+                } else if (e.is_boss) {
+                    // Boss body overlapping player body: no-op (head tail-cut handled above)
                 } else {
-                    // Normal enemy or boss body hitting player body: enemy takes damage
+                    // Normal enemy body hitting player body: enemy takes damage
                     const dead = e.take_damage();
                     if (damage_numbers) {
                         damage_numbers.emit(e.x, e.y - e.radius, 125, false);
@@ -259,9 +266,9 @@ export class EnemyManager {
             this.enemies.length = w;
         }
 
-        // Cap food to prevent unbounded growth in late game
+        // Cap food to prevent unbounded growth in late game — despawn oldest first
         if (arena.food.length > MAX_FOOD) {
-            arena.food.length = MAX_FOOD;
+            arena.food.splice(0, arena.food.length - MAX_FOOD);
         }
 
         // Rebuild spatial grid after all position changes and filtering

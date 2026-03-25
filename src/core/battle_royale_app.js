@@ -151,6 +151,7 @@ export class BattleRoyaleApp {
         this.vs_level_up_active = false;
         this.vs_level_up_choices = [];
         this.vs_level_up_index = 0;
+        this.vs_level_up_queue = [];
         this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0, venom_nova: 0, blast_radius: 0, weapon_range: 0, sidewinder: 0, ricochet: 0, cobra_pit: 0, tongue_lash: 0, miasma: 0, hydra_brood: 0, serpent_gatling: 0, consumption_beam: 0, singularity_mortar: 0, shatter_fang: 0, ancient_brood_pit: 0, serpents_reckoning: 0 };
         this.vs_invuln_start = 0;
         this.vs_self_collision_freeze = 0;
@@ -177,6 +178,7 @@ export class BattleRoyaleApp {
 
         this.paused = false;
         this.pause_start = 0;
+        this._powerup_pause_start = 0;
 
         // Performance overlay (F3)
         this._perf_overlay = false;
@@ -331,6 +333,10 @@ export class BattleRoyaleApp {
                                     this.apply_powerup(item.id);
                                 }
                                 this.vs_lottery_active = false;
+                                if (this._powerup_pause_start > 0) {
+                                    this._apply_powerup_pause(performance.now() - this._powerup_pause_start);
+                                    this._powerup_pause_start = 0;
+                                }
                                 this.vs_last_frame_time = performance.now();
                                 this.vs_resume_countdown_start = performance.now();
                             }
@@ -561,6 +567,7 @@ export class BattleRoyaleApp {
         this.vs_level_up_active = false;
         this.vs_level_up_choices = [];
         this.vs_level_up_index = 0;
+        this.vs_level_up_queue = [];
         this.vs_powerups = { magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0, venom_nova: 0, blast_radius: 0, weapon_range: 0, sidewinder: 0, ricochet: 0, cobra_pit: 0, tongue_lash: 0, miasma: 0, hydra_brood: 0, serpent_gatling: 0, consumption_beam: 0, singularity_mortar: 0, shatter_fang: 0, ancient_brood_pit: 0, serpents_reckoning: 0 };
         this.vs_invuln_start = 0;
         this.vs_self_collision_freeze = 0;
@@ -641,6 +648,41 @@ export class BattleRoyaleApp {
             if (this.zone_shrinker && this.zone_shrinker.last_shrink_time) {
                 this.zone_shrinker.last_shrink_time += pause_duration;
             }
+        }
+    }
+
+    _apply_powerup_pause(duration) {
+        this.survivors_start_time += duration;
+        if (this.enemy_manager) this.enemy_manager.pause_adjust(duration);
+        if (this.bullet_manager && this.bullet_manager.last_fire_time > 0) {
+            this.bullet_manager.last_fire_time += duration;
+        }
+        if (this.poison_mortar && this.poison_mortar.last_fire > 0) {
+            this.poison_mortar.last_fire += duration;
+        }
+        if (this.snake_nest && this.snake_nest.last_fire > 0) {
+            this.snake_nest.last_fire += duration;
+        }
+        if (this.hydra_brood && this.hydra_brood.last_fire > 0) {
+            this.hydra_brood.last_fire += duration;
+        }
+        if (this.serpent_gatling && this.serpent_gatling.last_fire > 0) {
+            this.serpent_gatling.last_fire += duration;
+        }
+        if (this.sidewinder_beam && this.sidewinder_beam.last_fire > 0) {
+            this.sidewinder_beam.last_fire += duration;
+        }
+        if (this.singularity_mortar && this.singularity_mortar.last_fire > 0) {
+            this.singularity_mortar.last_fire += duration;
+        }
+        if (this.grey_snake) {
+            this.grey_snake.pause_adjust(duration);
+        }
+        if (this.vs_self_collision_freeze > 0) {
+            this.vs_self_collision_freeze += duration;
+        }
+        if (this.zone_shrinker && this.zone_shrinker.last_shrink_time) {
+            this.zone_shrinker.last_shrink_time += duration;
         }
     }
 
@@ -912,6 +954,7 @@ export class BattleRoyaleApp {
                     const picked = this.chest_lottery.check_pickup(snake.head.x, snake.head.y, owned_defs, guaranteed);
                     if (picked) {
                         this.vs_lottery_active = true;
+                        this._powerup_pause_start = performance.now();
                         return;
                     }
                 }
@@ -993,13 +1036,12 @@ export class BattleRoyaleApp {
                         if (p.max_rank && this.vs_powerups[p.id] >= p.max_rank) return false;
                         if (WEAPON_TO_EVOLUTION[p.id] && this.vs_powerups[WEAPON_TO_EVOLUTION[p.id]] > 0) return false;
                         if (this.vs_powerups[p.id] === 0) {
-                            if (p.category === 'weapon' && owned_weapons >= 6) return false;
-                            if (p.category === 'effect' && owned_effects >= 6) return false;
+                            if (p.category === 'weapon' && owned_weapons >= 4) return false;
+                            if (p.category === 'effect' && owned_effects >= 4) return false;
                         }
                         return true;
                     });
                     if (pool.length === 0) continue;
-                    this.vs_level_up_active = true;
                     // Weighted selection: favour powerups the player already owns
                     const choices = [];
                     const remaining = [...pool];
@@ -1022,13 +1064,21 @@ export class BattleRoyaleApp {
                             choices[choices.length - 1] = w;
                         }
                     }
-                    this.vs_level_up_choices = choices.map(p => ({
+                    const mapped = choices.map(p => ({
                         ...p,
                         stats: this.get_powerup_desc(p.id),
                         is_new: this.vs_powerups[p.id] === 0,
                         current_level: this.vs_powerups[p.id],
                     }));
-                    this.vs_level_up_index = 0;
+                    // Queue up each level-up's choices; present the first one immediately
+                    if (!this.vs_level_up_active) {
+                        this.vs_level_up_active = true;
+                        this._powerup_pause_start = performance.now();
+                        this.vs_level_up_choices = mapped;
+                        this.vs_level_up_index = 0;
+                    } else {
+                        this.vs_level_up_queue.push(mapped);
+                    }
                 }
             }
 
@@ -2251,6 +2301,7 @@ export class BattleRoyaleApp {
         if (def && def.one_time) {
             this.vs_powerups[id] = 1;
         } else {
+            if (def && def.max_rank && this.vs_powerups[id] >= def.max_rank) return;
             this.vs_powerups[id]++;
         }
         // Gorger: 10% at rank 1 → 50% at rank 8 direct damage bonus
@@ -2587,7 +2638,17 @@ export class BattleRoyaleApp {
     select_level_up_choice(index) {
         if (!this.vs_level_up_active || index < 0 || index >= this.vs_level_up_choices.length) return;
         this.apply_powerup(this.vs_level_up_choices[index].id);
+        // If more level-ups are queued, present the next one immediately
+        if (this.vs_level_up_queue.length > 0) {
+            this.vs_level_up_choices = this.vs_level_up_queue.shift();
+            this.vs_level_up_index = 0;
+            return;
+        }
         this.vs_level_up_active = false;
+        if (this._powerup_pause_start > 0) {
+            this._apply_powerup_pause(performance.now() - this._powerup_pause_start);
+            this._powerup_pause_start = 0;
+        }
         this.vs_last_frame_time = performance.now();
         this.vs_resume_countdown_start = performance.now();
     }

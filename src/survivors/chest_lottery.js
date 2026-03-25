@@ -97,6 +97,7 @@ export class ChestLottery {
         this.beam_color_t = 0;
         this.guaranteed_items = [...guaranteed_items];
         this.guaranteed_fulfilled = new Set();
+        this.won_ids = new Set();
 
         const roll = Math.random();
         const beam_count = roll < 0.60 ? 1 : roll < 0.90 ? 2 : 3;
@@ -228,6 +229,14 @@ export class ChestLottery {
                             break;
                         }
                     }
+                    // Avoid duplicate: pick a different item if this one was already won
+                    if (this.won_ids.has(item.id)) {
+                        const available = this.all_item_defs.filter(d => !this.won_ids.has(d.id));
+                        if (available.length > 0) {
+                            item = available[Math.floor(Math.random() * available.length)];
+                        }
+                    }
+                    this.won_ids.add(item.id);
                     beam.settled_item = item;
                     this.won_items.push(beam.settled_item);
                     play_roulette_settle();
@@ -275,6 +284,14 @@ export class ChestLottery {
                     break;
                 }
             }
+            // Avoid duplicate: pick a different item if this one was already won
+            if (this.won_ids.has(item.id)) {
+                const available = this.all_item_defs.filter(d => !this.won_ids.has(d.id));
+                if (available.length > 0) {
+                    item = available[Math.floor(Math.random() * available.length)];
+                }
+            }
+            this.won_ids.add(item.id);
             beam.settled_item = item;
             this.won_items.push(beam.settled_item);
             play_roulette_settle();

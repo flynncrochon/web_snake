@@ -380,7 +380,7 @@ export class SurvivorsRenderer {
     }
 
     render_minimap(ctx, player_snake, enemies, arena_size, view_width, view_height, chests, grey_snake) {
-        const map_size = 110;
+        const map_size = 220;
         const padding = 10;
         const mx = view_width - map_size - padding;
         const my = view_height - map_size - padding;
@@ -409,11 +409,25 @@ export class SurvivorsRenderer {
             ctx.fillRect(mx + e.x * scale - 2.5, my + e.y * scale - 2.5, 5, 5);
         }
 
-        // Chests on minimap (gold dots)
-        if (chests) {
-            ctx.fillStyle = '#FFD700';
+        // Chests on minimap — large pulsing gold icons
+        if (chests && chests.length > 0) {
+            const pulse = (Math.sin(performance.now() / 400) + 1) / 2;
             for (const c of chests) {
-                ctx.fillRect(mx + c.x * scale - 1, my + c.y * scale - 1, 4, 4);
+                const cx = mx + c.x * scale;
+                const cy = my + c.y * scale;
+                // Outer glow ring
+                ctx.save();
+                ctx.globalAlpha = 0.3 + pulse * 0.3;
+                ctx.fillStyle = '#FFD700';
+                ctx.beginPath();
+                ctx.arc(cx, cy, 6 + pulse * 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+                // Bright inner dot
+                ctx.fillStyle = '#FFF8DC';
+                ctx.beginPath();
+                ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+                ctx.fill();
             }
         }
 
