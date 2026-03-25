@@ -76,6 +76,32 @@ export class GreySnakeManager {
 
         const now = performance.now();
 
+        // Find a spawn position that doesn't overlap with existing barriers
+        const temp_gs = { own_barriers: new Set() };
+        if (this._would_overlap_other(temp_gs, sx, sy)) {
+            let found = false;
+            const offsets = [];
+            for (let r = 2; r <= 10; r += 2) {
+                offsets.push([r, 0], [-r, 0], [0, r], [0, -r], [r, r], [-r, r], [r, -r], [-r, -r]);
+            }
+            for (const [ox, oy] of offsets) {
+                const nx = sx + ox;
+                const ny = sy + oy;
+                if (nx >= 1 && nx <= this.arena_size - 2 && ny >= 1 && ny <= this.arena_size - 2 &&
+                    !this._would_overlap_other(temp_gs, nx, ny)) {
+                    sx = nx;
+                    sy = ny;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return; // no valid spawn position, skip this spawn
+        }
+
+        const own_barriers = new Set();
+        const spawn_key = sx + ',' + sy;
+        own_barriers.add(spawn_key);
+
         this.snakes.push({
             segments: [{ x: sx, y: sy, prev_x: sx, prev_y: sy }],
             direction: { dx: 0, dy: 1 },
@@ -91,10 +117,10 @@ export class GreySnakeManager {
             wall_dx: 0,            // perpendicular sweep direction
             wall_dy: 0,
             wall_ticks: 0,         // ticks spent building current wall
+            own_barriers,          // barriers placed by THIS snake
         });
 
-        const key = sx + ',' + sy;
-        if (!this.barriers.has(key)) this.barriers.add(key);
+        if (!this.barriers.has(spawn_key)) this.barriers.add(spawn_key);
 
         // Immediately calculate first intercept target
         this._plan_intercept(this.snakes[this.snakes.length - 1], player_snake);
@@ -193,6 +219,31 @@ export class GreySnakeManager {
             if (nx < MIN || nx > MAX || ny < MIN || ny > MAX) return;
         }
 
+        // Ensure we don't overlap or get adjacent to another snake's barriers
+        if (this._would_overlap_other(gs, nx, ny)) {
+            const perp1 = { dx: -dir.dy, dy: dir.dx };
+            const perp2 = { dx: dir.dy, dy: -dir.dx };
+            let found = false;
+            for (const alt of [perp1, perp2]) {
+                const ax = head.x + alt.dx;
+                const ay = head.y + alt.dy;
+                if (ax >= MIN && ax <= MAX && ay >= MIN && ay <= MAX &&
+                    !this._would_overlap_other(gs, ax, ay)) {
+                    dir = alt;
+                    nx = ax;
+                    ny = ay;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                if (gs.phase === 'wall') {
+                    this._plan_intercept(gs, player_snake);
+                }
+                return;
+            }
+        }
+
         gs.direction = dir;
 
         // Grow — tail never disappears
@@ -209,6 +260,7 @@ export class GreySnakeManager {
 
         const key = nx + ',' + ny;
         if (!this.barriers.has(key)) this.barriers.add(key);
+        gs.own_barriers.add(key);
     }
 
     _dir_away(from, px, py) {
@@ -238,6 +290,22 @@ export class GreySnakeManager {
     }
 
 
+
+    /** Check if placing a barrier at (nx,ny) would overlap or be adjacent to another snake's barriers */
+    _would_overlap_other(gs, nx, ny) {
+        const neighbors = [
+            [nx, ny],
+            [nx + 1, ny], [nx - 1, ny],
+            [nx, ny + 1], [nx, ny - 1],
+        ];
+        for (const [cx, cy] of neighbors) {
+            const key = cx + ',' + cy;
+            if (this.barriers.has(key) && !gs.own_barriers.has(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     check_collision(px, py) {
         if (this.barriers.has(px + ',' + py)) return true;

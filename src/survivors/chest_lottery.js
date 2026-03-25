@@ -38,18 +38,19 @@ export class ChestLottery {
         this.guaranteed_fulfilled = new Set();
     }
 
-    spawn_chest(x, y, player_segments = [], arena_size = 200) {
-        // Avoid spawning inside the player snake — find nearest free cell
-        if (player_segments.length > 0) {
-            const occupied = new Set();
-            for (const s of player_segments) {
-                occupied.add(s.x + ',' + s.y);
-            }
-            if (occupied.has(x + ',' + y)) {
-                const pos = this._find_nearest_free(x, y, occupied, arena_size);
-                x = pos.x;
-                y = pos.y;
-            }
+    spawn_chest(x, y, player_segments = [], arena_size = 200, grey_barriers = null) {
+        // Avoid spawning inside the player snake or grey snake tiles — find nearest free cell
+        const occupied = new Set();
+        for (const s of player_segments) {
+            occupied.add(s.x + ',' + s.y);
+        }
+        if (grey_barriers) {
+            for (const key of grey_barriers) occupied.add(key);
+        }
+        if (occupied.has(x + ',' + y)) {
+            const pos = this._find_nearest_free(x, y, occupied, arena_size);
+            x = pos.x;
+            y = pos.y;
         }
         this.chests.push({ x, y, spawn_time: performance.now() });
     }

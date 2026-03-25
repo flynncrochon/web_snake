@@ -575,7 +575,7 @@ export class BattleRoyaleApp {
 
         this.enclosed_region = null;
 
-        this.arena.spawn_food_count(this.snakes, VS_FOOD_COUNT);
+        this.arena.spawn_food_count(this.snakes, VS_FOOD_COUNT, this.grey_snake ? this.grey_snake.barriers : null);
     }
 
     _handle_resize() {
@@ -709,6 +709,9 @@ export class BattleRoyaleApp {
         const occupied = new Set();
         for (const s of this.player_snake.segments) occupied.add(s.x + ',' + s.y);
         for (const f of this.arena.food) occupied.add(f.x + ',' + f.y);
+        if (this.grey_snake) {
+            for (const key of this.grey_snake.barriers) occupied.add(key);
+        }
 
         const a_size = this.arena.size;
         const candidates = [];
@@ -822,7 +825,7 @@ export class BattleRoyaleApp {
         // Spawn chests from boss deaths
         if (this.chest_lottery && this.enemy_manager.boss_deaths.length > 0) {
             for (const bd of this.enemy_manager.boss_deaths) {
-                this.chest_lottery.spawn_chest(bd.x, bd.y, snake.segments, this.arena.size);
+                this.chest_lottery.spawn_chest(bd.x, bd.y, snake.segments, this.arena.size, this.grey_snake ? this.grey_snake.barriers : null);
             }
         }
 
@@ -875,7 +878,7 @@ export class BattleRoyaleApp {
                 this.last_tick_time = now;
                 this.particles.update();
                 if (now - this.last_food_spawn >= 3000) {
-                    this.arena.spawn_food_count(this.snakes, VS_FOOD_COUNT);
+                    this.arena.spawn_food_count(this.snakes, VS_FOOD_COUNT, this.grey_snake ? this.grey_snake.barriers : null);
                     this.last_food_spawn = now;
                 }
                 return;
@@ -895,7 +898,7 @@ export class BattleRoyaleApp {
                     this.last_tick_time = now;
                     this.particles.update();
                     if (now - this.last_food_spawn >= 3000) {
-                        this.arena.spawn_food_count(this.snakes, VS_FOOD_COUNT);
+                        this.arena.spawn_food_count(this.snakes, VS_FOOD_COUNT, this.grey_snake ? this.grey_snake.barriers : null);
                         this.last_food_spawn = now;
                     }
                     return;
@@ -1120,7 +1123,7 @@ export class BattleRoyaleApp {
         }
 
         if (now - this.last_food_spawn >= 3000) {
-            this.arena.spawn_food_count(this.snakes, VS_FOOD_COUNT);
+            this.arena.spawn_food_count(this.snakes, VS_FOOD_COUNT, this.grey_snake ? this.grey_snake.barriers : null);
             this.last_food_spawn = now;
         }
 

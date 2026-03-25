@@ -26,7 +26,7 @@ export class Arena {
         this.spawn_food_count(snakes, FOOD_COUNT);
     }
 
-    spawn_food_count(snakes, target_count) {
+    spawn_food_count(snakes, target_count, grey_barriers = null) {
         const snake_cells = new Set();
         for (const snake of snakes) {
             if (!snake.alive) continue;
@@ -38,6 +38,9 @@ export class Arena {
         const occupied = new Set(snake_cells);
         for (const f of this.food) occupied.add(f.x + ',' + f.y);
         for (const r of this.remains) occupied.add(r.x + ',' + r.y);
+        if (grey_barriers) {
+            for (const key of grey_barriers) occupied.add(key);
+        }
 
         const w = this.safe_zone.x2 - this.safe_zone.x1 + 1;
         const h = this.safe_zone.y2 - this.safe_zone.y1 + 1;
