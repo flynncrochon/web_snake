@@ -2206,8 +2206,8 @@ export class BattleRoyaleApp {
         const lvl = this.vs_powerups[id];
         switch (id) {
             case 'venom_shot': {
-                const cur_dmg = 125 + (lvl - 1) * 20;
-                const next_dmg = 125 + lvl * 20;
+                const cur_dmg = 150 + (lvl - 1) * 30;
+                const next_dmg = 150 + lvl * 30;
                 const cur_cd = Math.max(180, 400 - (lvl - 1) * 30);
                 const next_cd = Math.max(180, 400 - lvl * 30);
                 const cur_extra = Math.floor((lvl - 1) / 3);
