@@ -63,7 +63,7 @@ export function play_fang_fire() {
     throttled('fang_fire', 80, () => {
         const ac = get_ctx();
         if (ac.state === 'suspended') ac.resume();
-        const osc = make_osc(ac, 'sawtooth', 400, 0.5, 0.06);
+        const osc = make_osc(ac, 'sawtooth', 400, 0.15, 0.06);
         osc.frequency.exponentialRampToValueAtTime(200, ac.currentTime + 0.05);
     });
 }
@@ -74,8 +74,8 @@ export function play_fang_hit() {
     throttled('fang_hit', 50, () => {
         const ac = get_ctx();
         if (ac.state === 'suspended') ac.resume();
-        make_osc(ac, 'square', 250, 0.4, 0.05);
-        make_noise(ac, 0.3, 0.04);
+        make_osc(ac, 'square', 250, 0.12, 0.05);
+        make_noise(ac, 0.1, 0.04);
     });
 }
 

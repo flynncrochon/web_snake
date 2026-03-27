@@ -219,8 +219,13 @@ export class GreySnakeManager {
             if (nx < MIN || nx > MAX || ny < MIN || ny > MAX) return;
         }
 
-        // Ensure we don't overlap or get adjacent to another snake's barriers
-        if (this._would_overlap_other(gs, nx, ny)) {
+        // Ensure we don't overlap or get adjacent to another snake's barriers,
+        // and never place a barrier directly next to the player's head or tail
+        const _blocked = (gx, gy) =>
+            this._would_overlap_other(gs, gx, gy) ||
+            this._adjacent_to_player_ends(gx, gy, player_snake);
+
+        if (_blocked(nx, ny)) {
             const perp1 = { dx: -dir.dy, dy: dir.dx };
             const perp2 = { dx: dir.dy, dy: -dir.dx };
             let found = false;
@@ -228,7 +233,7 @@ export class GreySnakeManager {
                 const ax = head.x + alt.dx;
                 const ay = head.y + alt.dy;
                 if (ax >= MIN && ax <= MAX && ay >= MIN && ay <= MAX &&
-                    !this._would_overlap_other(gs, ax, ay)) {
+                    !_blocked(ax, ay)) {
                     dir = alt;
                     nx = ax;
                     ny = ay;
@@ -291,18 +296,25 @@ export class GreySnakeManager {
 
 
 
-    /** Check if placing a barrier at (nx,ny) would overlap or be adjacent to another snake's barriers */
+    /** Check if placing a barrier at (nx,ny) would overlap or be adjacent (including diagonals) to another snake's barriers */
     _would_overlap_other(gs, nx, ny) {
-        const neighbors = [
-            [nx, ny],
-            [nx + 1, ny], [nx - 1, ny],
-            [nx, ny + 1], [nx, ny - 1],
-        ];
-        for (const [cx, cy] of neighbors) {
-            const key = cx + ',' + cy;
-            if (this.barriers.has(key) && !gs.own_barriers.has(key)) {
-                return true;
+        for (let ox = -1; ox <= 1; ox++) {
+            for (let oy = -1; oy <= 1; oy++) {
+                const key = (nx + ox) + ',' + (ny + oy);
+                if (this.barriers.has(key) && !gs.own_barriers.has(key)) {
+                    return true;
+                }
             }
+        }
+        return false;
+    }
+
+    /** Check if (nx,ny) is on or adjacent (including diagonals) to the player's head or tail */
+    _adjacent_to_player_ends(nx, ny, player_snake) {
+        const head = player_snake.head;
+        const tail = player_snake.segments[player_snake.segments.length - 1];
+        for (const pt of [head, tail]) {
+            if (Math.abs(nx - pt.x) <= 1 && Math.abs(ny - pt.y) <= 1) return true;
         }
         return false;
     }

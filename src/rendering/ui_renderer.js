@@ -52,7 +52,7 @@ export class UIRenderer {
         }
     }
 
-    draw_item_picker(ctx, items, selected_index, w, h) {
+    draw_item_picker(ctx, items, selected_index, w, h, mobile) {
         if (h === undefined) { h = w; }
 
         ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
@@ -183,7 +183,7 @@ export class UIRenderer {
 
             ctx.fillStyle = '#555';
             ctx.font = 'bold 14px monospace';
-            ctx.fillText('[' + (i + 1) + ']', x + card_width / 2, y + card_height - 15);
+            ctx.fillText(mobile ? 'TAP' : '[' + (i + 1) + ']', x + card_width / 2, y + card_height - 15);
         }
     }
 }

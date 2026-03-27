@@ -7,7 +7,7 @@ const FANG_SPREAD = 0.3; // perpendicular offset for the two fangs
 const FANG_ANGLE = Math.PI / 4; // 45° offset from facing direction
 const COS_FANG = Math.cos(FANG_ANGLE);
 const SIN_FANG = Math.sin(FANG_ANGLE);
-const FIRE_RANGE = 30;
+const FIRE_RANGE = 14;
 const FIRE_RANGE_SQ = FIRE_RANGE * FIRE_RANGE;
 
 export class BulletManager {

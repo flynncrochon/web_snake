@@ -41,6 +41,7 @@ import { GreySnakeManager } from '../survivors/grey_snake.js';
 import { SerpentScales } from '../survivors/serpent_scales.js';
 import { Ouroboros } from '../survivors/ouroboros.js';
 import { get_powerup_icon } from '../rendering/powerup_icons.js';
+import { is_mobile } from '../input/mobile_detect.js';
 
 const AI_COLORS = [
     '#888', '#668', '#686', '#866', '#586', '#658', '#856',
@@ -85,7 +86,7 @@ const VS_EVOLUTION_DEFS = [
     { id: 'consumption_beam', name: 'Consumption Beam', description: 'Always-on drain beam — absorbs enemies directly for 3× growth', requires: ['sidewinder', 'gorger'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
     { id: 'singularity_mortar', name: 'Singularity Mortar', description: 'Gravity well pulls enemies in then detonates for 2500 dmg', requires: ['plague', 'magnet'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
     { id: 'shatter_fang', name: 'Shatter Fang', description: 'Crits shatter the fang into splinters that chain and shatter again', requires: ['ricochet', 'crit'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
-    { id: 'ancient_brood_pit', name: 'Ancient Brood Pit', description: 'Ever-expanding pit spawns ancient cobras across a growing territory', requires: ['cobra_pit', 'chronofield'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
+    { id: 'ancient_brood_pit', name: 'Ancient Brood Pit', description: 'Summons a Mega Leviathan that fires a piercing laser — each pit thrown grows its size and power', requires: ['cobra_pit', 'chronofield'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
     { id: 'serpents_reckoning', name: "Serpent's Reckoning", description: 'Grapple tongue latches onto distant enemies and drags them back through the crowd', requires: ['tongue_lash', 'weapon_range'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
     { id: 'ouroboros', name: 'Ouroboros', description: 'Fangs orbit in a rotating ring of scales — passive damage aura replaces base shot', requires: ['serpent_scales', 'venom_shot'], one_time: true, max_rank: 1, evolution: true, category: 'weapon' },
 ];
@@ -101,6 +102,53 @@ for (const evo of VS_EVOLUTION_DEFS) {
     }
 }
 
+const SNAKE_CHARACTERS = [
+    {
+        id: 'cobra',
+        name: 'COBRA',
+        subtitle: 'The Spitting Menace',
+        description: 'Rapid venom projectiles seek out prey',
+        weapon: 'venom_shot',
+        weapon_name: 'Venom Shot',
+        face: 'cobra',
+        passive_name: 'Venom Potency',
+        passive_desc: '+15% damage on all weapons',
+    },
+    {
+        id: 'taipan',
+        name: 'TAIPAN',
+        subtitle: 'The Fang Slayer',
+        description: 'Homing fangs track and shred enemies',
+        weapon: 'fangs',
+        weapon_name: 'Viper Fangs',
+        face: 'viper',
+        passive_name: 'Apex Predator',
+        passive_desc: '+10% attack speed on all weapons',
+    },
+    {
+        id: 'mamba',
+        name: 'MAMBA',
+        subtitle: 'The Swift Fang',
+        description: 'Whipping tongue slows and damages foes',
+        weapon: 'tongue_lash',
+        weapon_name: 'Tongue Lash',
+        face: 'asp',
+        passive_name: 'Coiling Strike',
+        passive_desc: '+15% AOE radius on all effects',
+    },
+    {
+        id: 'basilisk',
+        name: 'BASILISK',
+        subtitle: 'The Plague Bringer',
+        description: 'Toxic bombs leave deadly poison zones',
+        weapon: 'plague',
+        weapon_name: 'Plague Mortar',
+        face: 'basilisk',
+        passive_name: 'Pestilence',
+        passive_desc: '+20% duration on pools and timed effects',
+    },
+];
+
 export class BattleRoyaleApp {
     constructor(canvas) {
         this.renderer = new Renderer(canvas);
@@ -111,6 +159,7 @@ export class BattleRoyaleApp {
         this.snake_renderer = new SnakeRenderer();
         this.snake_controller = new SnakeController();
         this.input = new Input();
+        this.is_mobile = is_mobile();
 
         this.fsm = new StateMachine();
         this.arena = null;
@@ -125,11 +174,7 @@ export class BattleRoyaleApp {
 
         this.mode = null;
         this.menu_index = 0;
-        this.menu_options = [
-            { label: 'SOLO', description: 'Classic snake. Eat, grow, survive.', mode: 'solo' },
-            { label: 'BATTLE ROYALE', description: `${AI_COUNT + 1} snakes. Last one standing.`, mode: 'battle_royale' },
-            { label: 'SURVIVORS', description: 'Slay hordes. Collect fruit. Survive.', mode: 'survivors' },
-        ];
+        this.selected_character = null;
 
         this.solo_score = 0;
         this.solo_high_score = parseInt(localStorage.getItem('snake_solo_high') || '0', 10);
@@ -214,17 +259,20 @@ export class BattleRoyaleApp {
         this.fsm.register('MAIN_MENU', {
             enter() {
                 self.menu_index = 0;
+                self.mode = null;
                 self.paused = false;
                 window.addEventListener('resize', self._on_resize);
                 self.renderer.reset_to_square();
+                self.input.hide_dpad?.();
             },
-            render() { self.render_main_menu(); },
+            render() { self.render_character_select(); },
         });
 
         this.fsm.register('COUNTDOWN', {
             enter() {
                 self.init_game();
                 self.countdown_start = performance.now();
+                self.input.show_dpad?.();
             },
             render() { self.render_countdown(); },
             update() {
@@ -250,14 +298,16 @@ export class BattleRoyaleApp {
         });
 
         this.fsm.register('VICTORY', {
+            enter() { self.input.hide_dpad?.(); },
             update() { self.particles.update(); },
             render() {
                 self.render_playing();
                 if (self.mode !== 'survivors') self.particles.render(self.renderer.ctx);
-                let msg = 'VICTORY! #1 — Press Space';
+                const act = self.is_mobile ? 'Tap' : 'Press Space';
+                let msg = `VICTORY! #1 — ${act}`;
                 if (self.mode === 'survivors') {
                     const kills = self.enemy_manager ? self.enemy_manager.total_kills : 0;
-                    msg = `YOU WON! 20:00 — ${kills} kills — Press Space`;
+                    msg = `YOU WON! 20:00 — ${kills} kills — ${act}`;
                 }
                 self.ui_renderer.draw_overlay(
                     self.renderer.hud_ctx || self.renderer.ctx,
@@ -269,7 +319,7 @@ export class BattleRoyaleApp {
         });
 
         this.fsm.register('DEATH', {
-            enter() { play_death_sound(); },
+            enter() { play_death_sound(); self.input.hide_dpad?.(); },
             update() {
                 if (self.mode === 'battle_royale') self.update_playing();
                 self.particles.update();
@@ -277,18 +327,19 @@ export class BattleRoyaleApp {
             render() {
                 self.render_playing();
                 if (self.mode !== 'survivors') self.particles.render(self.renderer.ctx);
+                const act = self.is_mobile ? 'Tap' : 'Press Space';
                 let msg;
                 if (self.mode === 'solo') {
-                    msg = `GAME OVER — Score: ${self.solo_score} — Press Space`;
+                    msg = `GAME OVER — Score: ${self.solo_score} — ${act}`;
                 } else if (self.mode === 'survivors') {
                     const kills = self.enemy_manager ? self.enemy_manager.total_kills : 0;
                     const elapsed = self.survivors_final_elapsed || 0;
                     const mins = Math.floor(elapsed / 60);
                     const secs = elapsed % 60;
-                    msg = `DEAD — ${kills} kills — ${mins}:${secs.toString().padStart(2, '0')} — Space`;
+                    msg = `DEAD — ${kills} kills — ${mins}:${secs.toString().padStart(2, '0')} — ${act}`;
                 } else {
                     const alive = self.snakes.filter(s => s.alive).length;
-                    msg = `ELIMINATED — #${alive + 1} place — Press Space`;
+                    msg = `ELIMINATED — #${alive + 1} place — ${act}`;
                 }
                 self.ui_renderer.draw_overlay(
                     self.renderer.hud_ctx || self.renderer.ctx,
@@ -302,16 +353,45 @@ export class BattleRoyaleApp {
 
     setup_input() {
         this.input.init();
+        if (this.is_mobile) {
+            this.input.init_touch(this.renderer.canvas);
+        }
         this.input.on_action = (action, data) => {
             const state = this.fsm.current;
 
             if (state === 'MAIN_MENU') {
-                if (action === 'menu_up') {
-                    this.menu_index = (this.menu_index - 1 + this.menu_options.length) % this.menu_options.length;
-                } else if (action === 'menu_down') {
-                    this.menu_index = (this.menu_index + 1) % this.menu_options.length;
+                if (action === 'tap' && data) {
+                    const size = this.renderer.logical_size;
+                    const tx = data.x * size;
+                    const ty = data.y * size;
+                    const card_w = Math.floor(size * 0.2);
+                    const card_h = Math.floor(size * 0.6);
+                    const gap = Math.floor(size * 0.025);
+                    const total_w = 4 * card_w + 3 * gap;
+                    const start_x = (size - total_w) / 2;
+                    const card_y = size * 0.18;
+                    for (let i = 0; i < SNAKE_CHARACTERS.length; i++) {
+                        const cx = start_x + i * (card_w + gap);
+                        if (tx >= cx && tx <= cx + card_w && ty >= card_y && ty <= card_y + card_h) {
+                            if (i === this.menu_index) {
+                                this.selected_character = SNAKE_CHARACTERS[this.menu_index];
+                                this.mode = 'survivors';
+                                this.fsm.transition('COUNTDOWN');
+                            } else {
+                                this.menu_index = i;
+                            }
+                            break;
+                        }
+                    }
+                    return;
+                }
+                if (action === 'menu_left') {
+                    this.menu_index = (this.menu_index - 1 + SNAKE_CHARACTERS.length) % SNAKE_CHARACTERS.length;
+                } else if (action === 'menu_right') {
+                    this.menu_index = (this.menu_index + 1) % SNAKE_CHARACTERS.length;
                 } else if (action === 'enter' || action === 'space') {
-                    this.mode = this.menu_options[this.menu_index].mode;
+                    this.selected_character = SNAKE_CHARACTERS[this.menu_index];
+                    this.mode = 'survivors';
                     this.fsm.transition('COUNTDOWN');
                 }
                 return;
@@ -330,7 +410,7 @@ export class BattleRoyaleApp {
             if (state === 'PLAYING') {
                 // Lottery dismiss
                 if (this.vs_lottery_active && this.chest_lottery) {
-                    if (action === 'enter' || action === 'space') {
+                    if (action === 'enter' || action === 'space' || action === 'tap') {
                         if (this.chest_lottery.phase === 'spinning') {
                             this.chest_lottery.skip_animation();
                         } else {
@@ -351,17 +431,40 @@ export class BattleRoyaleApp {
                     }
                     return;
                 }
-                // During resume countdown, arrow keys skip it and queue direction
+                // During resume countdown, arrow keys or tap skip it
                 if (this.vs_resume_countdown_start > 0) {
                     if (action === 'direction') {
                         this.vs_resume_countdown_start = 0;
                         this.vs_invuln_start = performance.now();
                         this.vs_last_frame_time = performance.now();
                         this.input.queue_direction(data, this.player_snake?.direction, false);
+                    } else if (action === 'tap') {
+                        this.vs_resume_countdown_start = 0;
+                        this.vs_invuln_start = performance.now();
+                        this.vs_last_frame_time = performance.now();
                     }
                     return;
                 }
                 if (this.vs_level_up_active) {
+                    if (action === 'tap' && data) {
+                        const w = this.renderer.logical_width;
+                        const h = this.renderer.logical_height;
+                        const tx = data.x * w;
+                        const ty = data.y * h;
+                        const card_width = 160, card_height = 290, gap = 20;
+                        const items = this.vs_level_up_choices;
+                        const total_width = items.length * card_width + (items.length - 1) * gap;
+                        const start_x = (w - total_width) / 2;
+                        const card_y = (h - card_height) / 2 - 20;
+                        for (let i = 0; i < items.length; i++) {
+                            const cx = start_x + i * (card_width + gap);
+                            if (tx >= cx && tx <= cx + card_width && ty >= card_y && ty <= card_y + card_height) {
+                                this.select_level_up_choice(i);
+                                break;
+                            }
+                        }
+                        return;
+                    }
                     if (action === 'menu_left') {
                         this.vs_level_up_index = (this.vs_level_up_index - 1 + this.vs_level_up_choices.length) % this.vs_level_up_choices.length;
                     } else if (action === 'menu_right') {
@@ -398,26 +501,25 @@ export class BattleRoyaleApp {
                     this._perf_overlay = !this._perf_overlay;
                     return;
                 }
-                // TEMP REMOVED: debug menu
-                // if (this.mode === 'survivors' && action === 'debug_menu') {
-                //     this.vs_debug_menu_active = !this.vs_debug_menu_active;
-                //     this.vs_debug_menu_index = 0;
-                //     return;
-                // }
-                // if (this.vs_debug_menu_active) {
-                //     const all_defs = [...VS_POWERUP_DEFS, ...VS_EVOLUTION_DEFS];
-                //     if (action === 'menu_up') {
-                //         this.vs_debug_menu_index = (this.vs_debug_menu_index - 1 + all_defs.length) % all_defs.length;
-                //     } else if (action === 'menu_down') {
-                //         this.vs_debug_menu_index = (this.vs_debug_menu_index + 1) % all_defs.length;
-                //     } else if (action === 'enter' || action === 'space') {
-                //         const def = all_defs[this.vs_debug_menu_index];
-                //         this.apply_powerup(def.id);
-                //     } else if (action === 'escape') {
-                //         this.vs_debug_menu_active = false;
-                //     }
-                //     return;
-                // }
+                if (this.mode === 'survivors' && action === 'debug_menu') {
+                    this.vs_debug_menu_active = !this.vs_debug_menu_active;
+                    this.vs_debug_menu_index = 0;
+                    return;
+                }
+                if (this.vs_debug_menu_active) {
+                    const all_defs = [...VS_POWERUP_DEFS, ...VS_EVOLUTION_DEFS];
+                    if (action === 'menu_up') {
+                        this.vs_debug_menu_index = (this.vs_debug_menu_index - 1 + all_defs.length) % all_defs.length;
+                    } else if (action === 'menu_down') {
+                        this.vs_debug_menu_index = (this.vs_debug_menu_index + 1) % all_defs.length;
+                    } else if (action === 'enter' || action === 'space') {
+                        const def = all_defs[this.vs_debug_menu_index];
+                        this.apply_powerup(def.id);
+                    } else if (action === 'escape') {
+                        this.vs_debug_menu_active = false;
+                    }
+                    return;
+                }
                 if (action === 'space' || action === 'escape') {
                     this.toggle_pause();
                     return;
@@ -430,7 +532,7 @@ export class BattleRoyaleApp {
             }
 
             if (state === 'VICTORY' || state === 'DEATH') {
-                if (action === 'space' || action === 'enter') {
+                if (action === 'space' || action === 'enter' || action === 'tap') {
                     this.fsm.transition('MAIN_MENU');
                 }
                 return;
@@ -536,7 +638,7 @@ export class BattleRoyaleApp {
             this.renderer.logical_width, this.renderer.logical_height);
         this.enemy_manager = new EnemyManager(VS_ARENA_SIZE);
         this.bullet_manager = new BulletManager();
-        this.bullet_manager.level = 1;
+        this.bullet_manager.level = 0;
         this.damage_numbers = new DamageNumberSystem();
         this.poison_mortar = new PoisonMortar();
         this.snake_nest = new SnakeNest();
@@ -578,7 +680,7 @@ export class BattleRoyaleApp {
         this.vs_level_up_choices = [];
         this.vs_level_up_index = 0;
         this.vs_level_up_queue = [];
-        this.vs_powerups = { venom_shot: 1, magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0, venom_nova: 0, blast_radius: 0, weapon_range: 0, sidewinder: 0, ricochet: 0, cobra_pit: 0, tongue_lash: 0, serpent_scales: 0, miasma: 0, hydra_brood: 0, serpent_gatling: 0, consumption_beam: 0, singularity_mortar: 0, shatter_fang: 0, ancient_brood_pit: 0, serpents_reckoning: 0, ouroboros: 0 };
+        this.vs_powerups = { venom_shot: 0, magnet: 0, atk_speed: 0, crit: 0, gorger: 0, plague: 0, snake_nest: 0, chronofield: 0, multishot: 0, fangs: 0, venom_nova: 0, blast_radius: 0, weapon_range: 0, sidewinder: 0, ricochet: 0, cobra_pit: 0, tongue_lash: 0, serpent_scales: 0, miasma: 0, hydra_brood: 0, serpent_gatling: 0, consumption_beam: 0, singularity_mortar: 0, shatter_fang: 0, ancient_brood_pit: 0, serpents_reckoning: 0, ouroboros: 0 };
         this.vs_invuln_start = 0;
         this.vs_self_collision_freeze = 0;
         this.vs_resume_countdown_start = 0;
@@ -586,6 +688,10 @@ export class BattleRoyaleApp {
         this.enclosed_region = null;
 
         this.arena.spawn_food_count(this.snakes, VS_FOOD_COUNT, this.grey_snake ? this.grey_snake.barriers : null);
+
+        // Activate starting weapon based on selected character
+        const start_weapon = this.selected_character ? this.selected_character.weapon : 'venom_shot';
+        this.apply_powerup(start_weapon);
     }
 
     _handle_resize() {
@@ -760,7 +866,7 @@ export class BattleRoyaleApp {
     update_survivors() {
         if (this._perf_overlay) this._perf_timings = {};
         if (this.vs_level_up_active) return;
-        // TEMP REMOVED: if (this.vs_debug_menu_active) return;
+        if (this.vs_debug_menu_active) return;
 
         // Lottery animation runs even while game is "paused" for it
         if (this.vs_lottery_active && this.chest_lottery) {
@@ -1054,7 +1160,7 @@ export class BattleRoyaleApp {
                         if (p.max_rank && this.vs_powerups[p.id] >= p.max_rank) return false;
                         if (WEAPON_TO_EVOLUTION[p.id] && this.vs_powerups[WEAPON_TO_EVOLUTION[p.id]] > 0) return false;
                         if (this.vs_powerups[p.id] === 0) {
-                            if (p.category === 'weapon' && owned_weapons >= 5) return false;
+                            if (p.category === 'weapon' && owned_weapons >= 4) return false;
                             if (p.category === 'effect' && owned_effects >= 4) return false;
                         }
                         return true;
@@ -1336,61 +1442,181 @@ export class BattleRoyaleApp {
         this.fsm.render();
     }
 
-    render_main_menu() {
+    render_character_select() {
         const ctx = this.renderer.hud_ctx || this.renderer.ctx;
         const size = this.renderer.logical_size;
 
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, size, size);
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 4;
-        ctx.strokeRect(2, 2, size - 4, size - 4);
 
+        // Title
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 36px monospace';
+        ctx.font = `bold ${Math.max(18, Math.floor(size * 0.04))}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('SNAKE', size / 2, size * 0.18);
+        ctx.fillText('SNAKE SURVIVORS', size / 2, size * 0.08);
 
-        ctx.font = '14px monospace';
         ctx.fillStyle = '#555';
-        ctx.fillText('Select a game mode', size / 2, size * 0.27);
+        ctx.font = `${Math.max(10, Math.floor(size * 0.018))}px monospace`;
+        ctx.fillText('Choose your serpent', size / 2, size * 0.13);
 
-        const start_y = size * 0.35;
-        const gap = 65;
+        // Card layout
+        const card_w = Math.floor(size * 0.2);
+        const card_h = Math.floor(size * 0.6);
+        const gap = Math.floor(size * 0.025);
+        const total_w = 4 * card_w + 3 * gap;
+        const start_x = (size - total_w) / 2;
+        const card_y = size * 0.18;
 
-        for (let i = 0; i < this.menu_options.length; i++) {
-            const opt = this.menu_options[i];
-            const y = start_y + i * gap;
-            const selected = i === this.menu_index;
+        const name_font = Math.max(12, Math.floor(card_w * 0.15));
+        const sub_font = Math.max(8, Math.floor(card_w * 0.085));
+        const weapon_font = Math.max(9, Math.floor(card_w * 0.1));
+        const desc_font = Math.max(8, Math.floor(card_w * 0.075));
 
-            if (selected) {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-                ctx.fillRect(size * 0.15, y - 22, size * 0.7, 55);
-                ctx.strokeStyle = '#fff';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(size * 0.15, y - 22, size * 0.7, 55);
+        for (let i = 0; i < SNAKE_CHARACTERS.length; i++) {
+            const char = SNAKE_CHARACTERS[i];
+            const x = start_x + i * (card_w + gap);
+            const y = card_y;
+            const sel = i === this.menu_index;
+
+            // Card bg + border
+            ctx.fillStyle = sel ? 'rgba(255, 255, 255, 0.08)' : 'rgba(30, 30, 30, 0.5)';
+            ctx.fillRect(x, y, card_w, card_h);
+            ctx.strokeStyle = sel ? '#fff' : '#444';
+            ctx.lineWidth = sel ? 3 : 1;
+            ctx.strokeRect(x, y, card_w, card_h);
+
+            // Selection arrow
+            if (sel) {
+                ctx.fillStyle = '#fff';
+                ctx.font = `bold ${Math.floor(card_w * 0.12)}px monospace`;
+                ctx.textAlign = 'center';
+                ctx.fillText('\u25BC', x + card_w / 2, y - Math.floor(size * 0.02));
             }
 
-            ctx.font = 'bold 22px monospace';
-            ctx.fillStyle = selected ? '#fff' : '#555';
-            const prefix = selected ? '> ' : '  ';
-            ctx.fillText(prefix + opt.label, size / 2, y);
+            // Snake head preview — fit inside the card with padding
+            const preview_seg = Math.floor(card_w * 0.13);
+            const preview_cy = y + card_h * 0.1;
+            const seg_gap = preview_seg * 1.05;
+            const seg_count = 4;
+            const total_snake_w = (seg_count - 1) * seg_gap + preview_seg;
+            const body_start = x + card_w / 2 + total_snake_w / 2 - preview_seg / 2;
 
-            ctx.font = '12px monospace';
-            ctx.fillStyle = selected ? '#888' : '#444';
-            ctx.fillText(opt.description, size / 2, y + 22);
+            // Draw body segments (tail to head)
+            for (let s = seg_count - 1; s >= 0; s--) {
+                const sx = body_start - s * seg_gap;
+                const alpha = s === 0 ? 1.0 : 0.65 - s * 0.15;
+                ctx.globalAlpha = Math.max(0.15, alpha);
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(sx - preview_seg / 2, preview_cy - preview_seg / 2, preview_seg, preview_seg);
+            }
+            ctx.globalAlpha = 1;
+
+            // Draw face on the head segment
+            const head_x = body_start;
+            this.snake_renderer.render_face(ctx, head_x, preview_cy, preview_seg, { dx: 1, dy: 0 }, char.face);
+
+            // Character name
+            ctx.textAlign = 'center';
+            ctx.fillStyle = sel ? '#fff' : '#888';
+            ctx.font = `bold ${name_font}px monospace`;
+            ctx.fillText(char.name, x + card_w / 2, y + card_h * 0.26);
+
+            // Subtitle
+            ctx.fillStyle = sel ? '#999' : '#555';
+            ctx.font = `${sub_font}px monospace`;
+            ctx.fillText(char.subtitle, x + card_w / 2, y + card_h * 0.33);
+
+            // Divider
+            ctx.strokeStyle = sel ? '#444' : '#333';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x + card_w * 0.15, y + card_h * 0.38);
+            ctx.lineTo(x + card_w * 0.85, y + card_h * 0.38);
+            ctx.stroke();
+
+            // Weapon icon
+            const icon = get_powerup_icon(char.weapon);
+            if (icon) {
+                const icon_sz = Math.floor(card_w * 0.3);
+                const icon_x = x + (card_w - icon_sz) / 2;
+                const icon_y = y + card_h * 0.4;
+                ctx.drawImage(icon, icon_x, icon_y, icon_sz, icon_sz);
+            }
+
+            // Weapon name
+            ctx.fillStyle = sel ? '#ffaa00' : '#886600';
+            ctx.font = `bold ${weapon_font}px monospace`;
+            ctx.textAlign = 'center';
+            ctx.fillText(char.weapon_name, x + card_w / 2, y + card_h * 0.6);
+
+            // Weapon description (word wrap)
+            ctx.fillStyle = sel ? '#999' : '#555';
+            ctx.font = `${desc_font}px monospace`;
+            const max_chars = Math.floor(card_w / (desc_font * 0.62));
+            const words = char.description.split(' ');
+            let line = '';
+            let line_y = y + card_h * 0.66;
+            const line_h = desc_font + 3;
+            for (const word of words) {
+                const test = line + word + ' ';
+                if (test.length > max_chars && line.length > 0) {
+                    ctx.fillText(line.trim(), x + card_w / 2, line_y);
+                    line = word + ' ';
+                    line_y += line_h;
+                } else {
+                    line = test;
+                }
+            }
+            if (line.trim()) ctx.fillText(line.trim(), x + card_w / 2, line_y);
+
+            // Divider before passive
+            ctx.strokeStyle = sel ? '#444' : '#333';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x + card_w * 0.15, y + card_h * 0.8);
+            ctx.lineTo(x + card_w * 0.85, y + card_h * 0.8);
+            ctx.stroke();
+
+            // Passive buff
+            ctx.fillStyle = sel ? '#44ff44' : '#227722';
+            ctx.font = `bold ${desc_font}px monospace`;
+            ctx.fillText(char.passive_name, x + card_w / 2, y + card_h * 0.86);
+            ctx.fillStyle = sel ? '#88dd88' : '#446644';
+            ctx.font = `${desc_font}px monospace`;
+            const p_words = char.passive_desc.split(' ');
+            let p_line = '';
+            let p_line_y = y + card_h * 0.92;
+            for (const word of p_words) {
+                const test = p_line + word + ' ';
+                if (test.length > max_chars && p_line.length > 0) {
+                    ctx.fillText(p_line.trim(), x + card_w / 2, p_line_y);
+                    p_line = word + ' ';
+                    p_line_y += line_h;
+                } else {
+                    p_line = test;
+                }
+            }
+            if (p_line.trim()) ctx.fillText(p_line.trim(), x + card_w / 2, p_line_y);
         }
 
-        ctx.font = '12px monospace';
-        ctx.fillStyle = '#444';
-        ctx.fillText('Arrow keys to select, Space to start', size / 2, size * 0.75);
-        ctx.fillText('WASD / Arrows to move in-game', size / 2, size * 0.8);
+        // Instructions
+        ctx.fillStyle = '#555';
+        ctx.font = `${Math.max(10, Math.floor(size * 0.018))}px monospace`;
+        ctx.textAlign = 'center';
+        if (this.is_mobile) {
+            ctx.fillText('Tap a character to play', size / 2, size * 0.84);
+            ctx.fillText('Use d-pad to move in-game', size / 2, size * 0.89);
+        } else {
+            ctx.fillText('\u2190 \u2192 to select, Space to start', size / 2, size * 0.84);
+            ctx.fillText('WASD / Arrows to move in-game', size / 2, size * 0.89);
+            ctx.fillText('F2 \u2014 Evolution Menu', size / 2, size * 0.94);
+        }
 
-        if (this.solo_high_score > 0) {
+        if (this.survivors_high_score > 0) {
             ctx.fillStyle = '#555';
-            ctx.font = '12px monospace';
-            ctx.fillText(`Solo high score: ${this.solo_high_score}`, size / 2, size * 0.9);
+            ctx.font = `${Math.max(10, Math.floor(size * 0.016))}px monospace`;
+            ctx.fillText(`Best survival: ${Math.floor(this.survivors_high_score / 60)}:${(this.survivors_high_score % 60).toString().padStart(2, '0')}`, size / 2, size * 0.96);
         }
     }
 
@@ -1549,7 +1775,7 @@ export class BattleRoyaleApp {
 
         ctx.fillStyle = '#888';
         ctx.font = '14px monospace';
-        ctx.fillText('Press Space to resume', w / 2, h / 2 + 20);
+        ctx.fillText(this.is_mobile ? 'Tap pause to resume' : 'Press Space to resume', w / 2, h / 2 + 20);
     }
 
     // Perf timing helper — only times when overlay is active (zero overhead otherwise)
@@ -1640,6 +1866,19 @@ export class BattleRoyaleApp {
                     color = Math.floor(now / 80) % 2 === 0 ? '#f44' : '#fff';
                 }
                 this.snake_renderer.render(ctx, this.player_snake.segments, cell, t, color, 1.0, cox, coy);
+                if (this.selected_character) {
+                    const head = this.player_snake.head;
+                    const hlx = head.x !== head.prev_x
+                        ? (head.prev_x + (head.x - head.prev_x) * t + 0.5) * cell
+                        : (head.x + 0.5) * cell;
+                    const hly = head.y !== head.prev_y
+                        ? (head.prev_y + (head.y - head.prev_y) * t + 0.5) * cell
+                        : (head.y + 0.5) * cell;
+                    const face_x = Math.round(hlx + cox);
+                    const face_y = Math.round(hly + coy);
+                    const seg_size = Math.round(cell * 0.7);
+                    this.snake_renderer.render_face(ctx, face_x, face_y, seg_size, this.player_snake.direction, this.selected_character.face, true);
+                }
                 if (this.serpent_scales && this.serpent_scales.charges > 0) {
                     this.serpent_scales.render(ctx, this.player_snake.segments, cell, t, cox, coy, now);
                 }
@@ -1706,7 +1945,7 @@ export class BattleRoyaleApp {
         }
 
         if (this.vs_level_up_active) {
-            this.ui_renderer.draw_item_picker(hctx, this.vs_level_up_choices, this.vs_level_up_index, w, h);
+            this.ui_renderer.draw_item_picker(hctx, this.vs_level_up_choices, this.vs_level_up_index, w, h, this.is_mobile);
         }
 
         // Lottery animation overlay
@@ -1714,10 +1953,9 @@ export class BattleRoyaleApp {
             this.chest_lottery.render_lottery(hctx, cell, w, h);
         }
 
-        // TEMP REMOVED: debug menu rendering
-        // if (this.vs_debug_menu_active) {
-        //     this.render_debug_menu(hctx, w, h);
-        // }
+        if (this.vs_debug_menu_active) {
+            this.render_debug_menu(hctx, w, h);
+        }
 
         if (this.vs_evo_menu_active) {
             this.render_evolution_menu(hctx, w, h);
@@ -2025,11 +2263,18 @@ export class BattleRoyaleApp {
             ctx.fillStyle = owned ? '#4f4' : (req_met ? '#0ff' : '#888');
             ctx.fillText(owned ? 'UNLOCKED' : (req_met ? 'READY' : 'LOCKED'), cx + 48, cy + 32);
 
-            // Requirements
+            // Requirements — weapons first, effects second
             ctx.font = '11px monospace';
             ctx.textAlign = 'left';
-            for (let r = 0; r < evo.requires.length; r++) {
-                const req_id = evo.requires[r];
+            const sorted_reqs = [...evo.requires].sort((a, b) => {
+                const da = VS_POWERUP_DEFS.find(p => p.id === a);
+                const db = VS_POWERUP_DEFS.find(p => p.id === b);
+                const ca = da && da.category === 'effect' ? 1 : 0;
+                const cb = db && db.category === 'effect' ? 1 : 0;
+                return ca - cb;
+            });
+            for (let r = 0; r < sorted_reqs.length; r++) {
+                const req_id = sorted_reqs[r];
                 const req_name = name_map[req_id] || req_id;
                 const req_lvl = this.vs_powerups[req_id] || 0;
                 const req_def = VS_POWERUP_DEFS.find(p => p.id === req_id);
@@ -2056,7 +2301,7 @@ export class BattleRoyaleApp {
         ctx.fillStyle = '#666';
         ctx.font = '11px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('F2 or ESC to close  \u2022  Get both requirements to Rank 8, then open a chest', mx + menu_w / 2, my + menu_h - 14);
+        ctx.fillText('[F2] Evolution Menu  \u2022  F2 or ESC to close  \u2022  Max both requirements, then open a chest', mx + menu_w / 2, my + menu_h - 14);
     }
 
     render_survivors_hud(ctx, w, h) {
@@ -2092,7 +2337,7 @@ export class BattleRoyaleApp {
         const icon_gap = 4;
         const box_size = icon_size + 4;
         const box_gap = icon_gap;
-        const max_weapon_slots = 5;
+        const max_weapon_slots = 4;
         const max_effect_slots = 4;
         const all_defs = [...VS_POWERUP_DEFS, ...VS_EVOLUTION_DEFS];
         const row_height = box_size + 14;
@@ -2200,6 +2445,7 @@ export class BattleRoyaleApp {
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         ctx.fillText(`Lv ${this.vs_level}`, bar_x - 4, bar_y + bar_h / 2);
+
     }
 
     get_powerup_desc(id) {
@@ -2327,7 +2573,7 @@ export class BattleRoyaleApp {
             case 'shatter_fang':
                 return 'Crits shatter fangs into 3 splinters that chain and shatter again — up to 3 generations deep';
             case 'ancient_brood_pit':
-                return 'Ever-expanding pit endlessly spawns ancient cobras — 120 dmg spit, pit grows over time';
+                return 'Mega Leviathan fires piercing laser — 180 base dmg, each pit grows size, power + range, AOE widens beam';
             case 'ouroboros':
                 return 'Orbiting fang ring — 200 raw dmg per hit, no knockback, replaces Venom Shot + Scales';
             default: return '';
@@ -2344,12 +2590,21 @@ export class BattleRoyaleApp {
         }
         // Gorger: 10% at rank 1 → 50% at rank 8 direct damage bonus
         const gorger = this.vs_powerups.gorger;
-        const gorger_dmg_mult = gorger > 0 ? 1 + (10 + (gorger - 1) * (40 / 7)) / 100 : 1;
-        const dur_mult = 1 + this.vs_powerups.chronofield * 0.25;
+        let gorger_dmg_mult = gorger > 0 ? 1 + (10 + (gorger - 1) * (40 / 7)) / 100 : 1;
+        let dur_mult = 1 + this.vs_powerups.chronofield * 0.25;
         const extra = this.vs_powerups.multishot;
-        const radius_mult = 1 + this.vs_powerups.blast_radius * 0.15;
+        let radius_mult = 1 + this.vs_powerups.blast_radius * 0.15;
         const range_mult = 1 + this.vs_powerups.weapon_range * 0.12;
-        const fire_cd_mult = Math.pow(0.85, this.vs_powerups.atk_speed);
+        let fire_cd_mult = Math.pow(0.85, this.vs_powerups.atk_speed);
+        // Character passive buffs
+        if (this.selected_character) {
+            switch (this.selected_character.id) {
+                case 'cobra': gorger_dmg_mult *= 1.15; break;
+                case 'taipan': fire_cd_mult *= 0.9; break;
+                case 'mamba': radius_mult *= 1.15; break;
+                case 'basilisk': dur_mult *= 1.2; break;
+            }
+        }
         if (this.bullet_manager) {
             this.bullet_manager.level = this.vs_powerups.ouroboros ? 0 : this.vs_powerups.venom_shot;
             if (this.vs_powerups.ouroboros && this.bullet_manager.level === 0) this.bullet_manager.clear();

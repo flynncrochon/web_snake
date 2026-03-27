@@ -442,35 +442,45 @@ const SVG_DEFS = {
 
     // Ancient Brood Pit — expanding amber pit with ancient snake and rune ring
     ancient_brood_pit: `<svg ${S}>
-        <!-- Expanding pit rings -->
-        <circle cx="32" cy="36" r="26" fill="none" stroke="#cc8822" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.35"/>
-        <circle cx="32" cy="36" r="19" fill="none" stroke="#ddaa33" stroke-width="2" stroke-dasharray="3 2" opacity="0.5"/>
-        <!-- Dark pit center -->
-        <circle cx="32" cy="36" r="12" fill="#1a0f04"/>
-        <circle cx="32" cy="36" r="12" fill="none" stroke="#8b5e1a" stroke-width="1.5"/>
-        <!-- Crack lines radiating outward -->
-        <line x1="32" y1="36" x2="10" y2="22" stroke="#cc8822" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
-        <line x1="32" y1="36" x2="54" y2="24" stroke="#cc8822" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
-        <line x1="32" y1="36" x2="8" y2="46" stroke="#cc8822" stroke-width="1" stroke-linecap="round" opacity="0.4"/>
-        <line x1="32" y1="36" x2="56" y2="48" stroke="#cc8822" stroke-width="1" stroke-linecap="round" opacity="0.4"/>
-        <line x1="32" y1="36" x2="32" y2="60" stroke="#cc8822" stroke-width="1" stroke-linecap="round" opacity="0.4"/>
-        <!-- Ancient cobra rising — amber body -->
-        <path d="M32 44 Q28 36 32 28 Q36 22 32 14" fill="none" stroke="#cc8822" stroke-width="4" stroke-linecap="round"/>
-        <path d="M32 44 Q28 36 32 28 Q36 22 32 14" fill="none" stroke="#ffaa33" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
-        <!-- Diamond head -->
-        <polygon points="32,6 26,12 32,15 38,12" fill="#dd9922" stroke="#8b5e1a" stroke-width="0.8"/>
-        <!-- Eyes -->
-        <circle cx="29" cy="10.5" r="1.2" fill="#ff8800"/>
-        <circle cx="35" cy="10.5" r="1.2" fill="#ff8800"/>
+        <!-- Cracked pit ground -->
+        <ellipse cx="20" cy="56" rx="15" ry="5" fill="#0d0800"/>
+        <ellipse cx="20" cy="56" rx="15" ry="5" fill="none" stroke="#6b4400" stroke-width="1.2"/>
+        <line x1="20" y1="56" x2="7" y2="51" stroke="#8b5e1a" stroke-width="0.7" opacity="0.5"/>
+        <line x1="20" y1="56" x2="33" y2="52" stroke="#8b5e1a" stroke-width="0.7" opacity="0.5"/>
+        <line x1="20" y1="56" x2="20" y2="62" stroke="#8b5e1a" stroke-width="0.7" opacity="0.4"/>
         <!-- Rune dots -->
-        <circle cx="14" cy="30" r="1.5" fill="#ffcc44" opacity="0.6"/>
-        <circle cx="50" cy="30" r="1.5" fill="#ffcc44" opacity="0.6"/>
-        <circle cx="18" cy="50" r="1.5" fill="#ffcc44" opacity="0.5"/>
-        <circle cx="46" cy="50" r="1.5" fill="#ffcc44" opacity="0.5"/>
-        <circle cx="32" cy="56" r="1.5" fill="#ffcc44" opacity="0.4"/>
-        <!-- Growth arrows pointing outward -->
-        <path d="M8 36 L4 36 M6 34 L4 36 L6 38" fill="none" stroke="#ffaa33" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
-        <path d="M56 36 L60 36 M58 34 L60 36 L58 38" fill="none" stroke="#ffaa33" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+        <circle cx="9" cy="50" r="1" fill="#ffcc44" opacity="0.45"/>
+        <circle cx="31" cy="50" r="1" fill="#ffcc44" opacity="0.45"/>
+        <circle cx="13" cy="60" r="0.8" fill="#ffcc44" opacity="0.3"/>
+        <circle cx="27" cy="60" r="0.8" fill="#ffcc44" opacity="0.3"/>
+        <!-- Thick body rising from pit -->
+        <path d="M20 56 Q16 46 19 36 Q22 28 20 18" fill="none" stroke="#5a3800" stroke-width="9" stroke-linecap="round"/>
+        <path d="M20 56 Q16 46 19 36 Q22 28 20 18" fill="none" stroke="#b07818" stroke-width="7" stroke-linecap="round"/>
+        <path d="M20 56 Q16 46 19 36 Q22 28 20 18" fill="none" stroke="#cc8822" stroke-width="5" stroke-linecap="round"/>
+        <!-- Diamond scale pattern on body -->
+        <polygon points="18,42 20,40 22,42 20,44" fill="#9a6a18" opacity="0.5"/>
+        <polygon points="19,34 21,32 23,34 21,36" fill="#9a6a18" opacity="0.4"/>
+        <!-- Flared hood -->
+        <polygon points="20,16 10,20 13,14 20,10 27,14 30,20" fill="#dd9922" stroke="#6b4400" stroke-width="1"/>
+        <!-- Upper jaw (snout) -->
+        <polygon points="20,6 13,13 16,14 24,14 27,13" fill="#ddaa33" stroke="#6b4400" stroke-width="0.8"/>
+        <!-- Open mouth cavity -->
+        <ellipse cx="20" cy="13.5" rx="4" ry="2" fill="#0a0200"/>
+        <!-- Mouth energy glow -->
+        <ellipse cx="20" cy="13.5" rx="3" ry="1.5" fill="#ffaa33" opacity="0.35"/>
+        <ellipse cx="20" cy="13.5" rx="1.5" ry="0.8" fill="#ffeecc" opacity="0.6"/>
+        <!-- Lower jaw -->
+        <polygon points="16,14 20,17 24,14" fill="#b07818" stroke="#6b4400" stroke-width="0.6"/>
+        <!-- Fangs -->
+        <line x1="16.5" y1="13.5" x2="16" y2="16" stroke="#ffe8cc" stroke-width="1" stroke-linecap="round"/>
+        <line x1="23.5" y1="13.5" x2="24" y2="16" stroke="#ffe8cc" stroke-width="1" stroke-linecap="round"/>
+        <!-- Glowing eyes on hood -->
+        <circle cx="16" cy="11.5" r="2" fill="#ff8800" opacity="0.5"/>
+        <circle cx="24" cy="11.5" r="2" fill="#ff8800" opacity="0.5"/>
+        <circle cx="16" cy="11.5" r="1.2" fill="#ffaa00"/>
+        <circle cx="24" cy="11.5" r="1.2" fill="#ffaa00"/>
+        <ellipse cx="16" cy="11.5" rx="0.35" ry="1" fill="#110000"/>
+        <ellipse cx="24" cy="11.5" rx="0.35" ry="1" fill="#110000"/>
     </svg>`,
 
     // Serpent's Reckoning — grapple tongue yanking an enemy back
