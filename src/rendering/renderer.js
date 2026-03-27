@@ -1,9 +1,10 @@
 import { ARENA_SIZE } from '../constants.js';
+import { is_mobile } from '../input/mobile_detect.js';
 
 export class Renderer {
     constructor(canvas) {
         this.canvas = canvas;
-        this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+        this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: !is_mobile() });
 
         // HUD overlay canvas — renders text at native DPR for crisp text
         this.hud_canvas = document.getElementById('hud');
