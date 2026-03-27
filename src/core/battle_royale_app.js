@@ -364,15 +364,10 @@ export class BattleRoyaleApp {
                     const size = this.renderer.logical_size;
                     const tx = data.x * size;
                     const ty = data.y * size;
-                    const card_w = Math.floor(size * 0.2);
-                    const card_h = Math.floor(size * 0.6);
-                    const gap = Math.floor(size * 0.025);
-                    const total_w = 4 * card_w + 3 * gap;
-                    const start_x = (size - total_w) / 2;
-                    const card_y = size * 0.18;
-                    for (let i = 0; i < SNAKE_CHARACTERS.length; i++) {
-                        const cx = start_x + i * (card_w + gap);
-                        if (tx >= cx && tx <= cx + card_w && ty >= card_y && ty <= card_y + card_h) {
+                    const cards = this._menu_card_rects(size);
+                    for (let i = 0; i < cards.length; i++) {
+                        const c = cards[i];
+                        if (tx >= c.x && tx <= c.x + c.w && ty >= c.y && ty <= c.y + c.h) {
                             if (i === this.menu_index) {
                                 this.selected_character = SNAKE_CHARACTERS[this.menu_index];
                                 this.mode = 'survivors';
@@ -451,11 +446,12 @@ export class BattleRoyaleApp {
                         const h = this.renderer.logical_height;
                         const tx = data.x * w;
                         const ty = data.y * h;
-                        const card_width = 160, card_height = 290, gap = 20;
+                        const s = this.is_mobile ? Math.min(w, h) / 520 : 1;
+                        const card_width = Math.floor(160 * s), card_height = Math.floor(290 * s), gap = Math.floor(20 * s);
                         const items = this.vs_level_up_choices;
                         const total_width = items.length * card_width + (items.length - 1) * gap;
                         const start_x = (w - total_width) / 2;
-                        const card_y = (h - card_height) / 2 - 20;
+                        const card_y = (h - card_height) / 2 - Math.floor(20 * s);
                         for (let i = 0; i < items.length; i++) {
                             const cx = start_x + i * (card_width + gap);
                             if (tx >= cx && tx <= cx + card_width && ty >= card_y && ty <= card_y + card_height) {
@@ -630,7 +626,8 @@ export class BattleRoyaleApp {
     init_survivors() {
         this.arena = new Arena(VS_ARENA_SIZE);
 
-        const vs_cell_size = Math.min(window.innerWidth, window.innerHeight) / VS_VIEWPORT_CELLS;
+        const viewport_cells = this.is_mobile ? 15 : VS_VIEWPORT_CELLS;
+        const vs_cell_size = Math.min(window.innerWidth, window.innerHeight) / viewport_cells;
         this.renderer.set_fullscreen(vs_cell_size);
         window.addEventListener('resize', this._on_resize);
 
@@ -696,7 +693,8 @@ export class BattleRoyaleApp {
 
     _handle_resize() {
         if (this.mode === 'survivors') {
-            const vs_cell_size = Math.min(window.innerWidth, window.innerHeight) / VS_VIEWPORT_CELLS;
+            const viewport_cells = this.is_mobile ? 15 : VS_VIEWPORT_CELLS;
+            const vs_cell_size = Math.min(window.innerWidth, window.innerHeight) / viewport_cells;
             this.renderer.set_fullscreen(vs_cell_size);
             if (this.camera) {
                 this.camera.cell_size = vs_cell_size;
@@ -1442,6 +1440,36 @@ export class BattleRoyaleApp {
         this.fsm.render();
     }
 
+    _menu_card_rects(size) {
+        const rects = [];
+        if (this.is_mobile) {
+            const cols = 2, rows = 2;
+            const gap = Math.floor(size * 0.03);
+            const card_w = Math.floor((size - gap * 3) / cols);
+            const card_h = Math.floor(size * 0.35);
+            const grid_w = cols * card_w + (cols - 1) * gap;
+            const grid_h = rows * card_h + (rows - 1) * gap;
+            const ox = (size - grid_w) / 2;
+            const oy = size * 0.15;
+            for (let i = 0; i < SNAKE_CHARACTERS.length; i++) {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                rects.push({ x: ox + col * (card_w + gap), y: oy + row * (card_h + gap), w: card_w, h: card_h });
+            }
+        } else {
+            const card_w = Math.floor(size * 0.2);
+            const card_h = Math.floor(size * 0.6);
+            const gap = Math.floor(size * 0.025);
+            const total_w = 4 * card_w + 3 * gap;
+            const start_x = (size - total_w) / 2;
+            const card_y = size * 0.18;
+            for (let i = 0; i < SNAKE_CHARACTERS.length; i++) {
+                rects.push({ x: start_x + i * (card_w + gap), y: card_y, w: card_w, h: card_h });
+            }
+        }
+        return rects;
+    }
+
     render_character_select() {
         const ctx = this.renderer.hud_ctx || this.renderer.ctx;
         const size = this.renderer.logical_size;
@@ -1460,24 +1488,23 @@ export class BattleRoyaleApp {
         ctx.font = `${Math.max(10, Math.floor(size * 0.018))}px monospace`;
         ctx.fillText('Choose your serpent', size / 2, size * 0.13);
 
-        // Card layout
-        const card_w = Math.floor(size * 0.2);
-        const card_h = Math.floor(size * 0.6);
-        const gap = Math.floor(size * 0.025);
-        const total_w = 4 * card_w + 3 * gap;
-        const start_x = (size - total_w) / 2;
-        const card_y = size * 0.18;
-
-        const name_font = Math.max(12, Math.floor(card_w * 0.15));
-        const sub_font = Math.max(8, Math.floor(card_w * 0.085));
-        const weapon_font = Math.max(9, Math.floor(card_w * 0.1));
-        const desc_font = Math.max(8, Math.floor(card_w * 0.075));
+        const cards = this._menu_card_rects(size);
 
         for (let i = 0; i < SNAKE_CHARACTERS.length; i++) {
             const char = SNAKE_CHARACTERS[i];
-            const x = start_x + i * (card_w + gap);
-            const y = card_y;
+            const { x, y, w: card_w, h: card_h } = cards[i];
             const sel = i === this.menu_index;
+
+            // Scale fonts: use card_h for vertical fill, but cap by card_w so text doesn't overflow horizontally
+            const vref = card_h;
+            const hcap = card_w * 0.12;
+            const name_font = Math.max(12, Math.min(Math.floor(vref * 0.055), Math.floor(hcap)));
+            const sub_font = Math.max(8, Math.min(Math.floor(vref * 0.035), Math.floor(hcap * 0.65)));
+            const weapon_font = Math.max(9, Math.min(Math.floor(vref * 0.042), Math.floor(hcap * 0.75)));
+            const desc_font = Math.max(7, Math.min(Math.floor(vref * 0.032), Math.floor(hcap * 0.6)));
+            const line_h = desc_font + 2;
+            const inner_w = card_w * 0.9;
+            const max_chars = Math.floor(inner_w / (desc_font * 0.62));
 
             // Card bg + border
             ctx.fillStyle = sel ? 'rgba(255, 255, 255, 0.08)' : 'rgba(30, 30, 30, 0.5)';
@@ -1486,23 +1513,28 @@ export class BattleRoyaleApp {
             ctx.lineWidth = sel ? 3 : 1;
             ctx.strokeRect(x, y, card_w, card_h);
 
+            // Clip all content to inside the card
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x, y, card_w, card_h);
+            ctx.clip();
+
             // Selection arrow
             if (sel) {
                 ctx.fillStyle = '#fff';
-                ctx.font = `bold ${Math.floor(card_w * 0.12)}px monospace`;
+                ctx.font = `bold ${Math.min(Math.floor(card_h * 0.04), Math.floor(card_w * 0.1))}px monospace`;
                 ctx.textAlign = 'center';
-                ctx.fillText('\u25BC', x + card_w / 2, y - Math.floor(size * 0.02));
+                ctx.fillText('\u25BC', x + card_w / 2, y + card_h * 0.03);
             }
 
-            // Snake head preview — fit inside the card with padding
-            const preview_seg = Math.floor(card_w * 0.13);
-            const preview_cy = y + card_h * 0.1;
+            // Snake head preview
+            const preview_seg = Math.min(Math.floor(card_h * 0.045), Math.floor(card_w * 0.12));
+            const preview_cy = y + card_h * 0.10;
             const seg_gap = preview_seg * 1.05;
             const seg_count = 4;
             const total_snake_w = (seg_count - 1) * seg_gap + preview_seg;
             const body_start = x + card_w / 2 + total_snake_w / 2 - preview_seg / 2;
 
-            // Draw body segments (tail to head)
             for (let s = seg_count - 1; s >= 0; s--) {
                 const sx = body_start - s * seg_gap;
                 const alpha = s === 0 ? 1.0 : 0.65 - s * 0.15;
@@ -1512,7 +1544,6 @@ export class BattleRoyaleApp {
             }
             ctx.globalAlpha = 1;
 
-            // Draw face on the head segment
             const head_x = body_start;
             this.snake_renderer.render_face(ctx, head_x, preview_cy, preview_seg, { dx: 1, dy: 0 }, char.face);
 
@@ -1520,27 +1551,27 @@ export class BattleRoyaleApp {
             ctx.textAlign = 'center';
             ctx.fillStyle = sel ? '#fff' : '#888';
             ctx.font = `bold ${name_font}px monospace`;
-            ctx.fillText(char.name, x + card_w / 2, y + card_h * 0.26);
+            ctx.fillText(char.name, x + card_w / 2, y + card_h * 0.20);
 
             // Subtitle
             ctx.fillStyle = sel ? '#999' : '#555';
             ctx.font = `${sub_font}px monospace`;
-            ctx.fillText(char.subtitle, x + card_w / 2, y + card_h * 0.33);
+            ctx.fillText(char.subtitle, x + card_w / 2, y + card_h * 0.27);
 
             // Divider
             ctx.strokeStyle = sel ? '#444' : '#333';
             ctx.lineWidth = 1;
             ctx.beginPath();
-            ctx.moveTo(x + card_w * 0.15, y + card_h * 0.38);
-            ctx.lineTo(x + card_w * 0.85, y + card_h * 0.38);
+            ctx.moveTo(x + card_w * 0.15, y + card_h * 0.32);
+            ctx.lineTo(x + card_w * 0.85, y + card_h * 0.32);
             ctx.stroke();
 
             // Weapon icon
             const icon = get_powerup_icon(char.weapon);
             if (icon) {
-                const icon_sz = Math.floor(card_w * 0.3);
+                const icon_sz = Math.min(Math.floor(card_h * 0.1), Math.floor(card_w * 0.28));
                 const icon_x = x + (card_w - icon_sz) / 2;
-                const icon_y = y + card_h * 0.4;
+                const icon_y = y + card_h * 0.34;
                 ctx.drawImage(icon, icon_x, icon_y, icon_sz, icon_sz);
             }
 
@@ -1548,56 +1579,64 @@ export class BattleRoyaleApp {
             ctx.fillStyle = sel ? '#ffaa00' : '#886600';
             ctx.font = `bold ${weapon_font}px monospace`;
             ctx.textAlign = 'center';
-            ctx.fillText(char.weapon_name, x + card_w / 2, y + card_h * 0.6);
+            ctx.fillText(char.weapon_name, x + card_w / 2, y + card_h * 0.52);
 
-            // Weapon description (word wrap)
+            // Weapon description (word wrap) — use a cursor that advances
             ctx.fillStyle = sel ? '#999' : '#555';
             ctx.font = `${desc_font}px monospace`;
-            const max_chars = Math.floor(card_w / (desc_font * 0.62));
+            let cursor_y = y + card_h * 0.58;
+            const bottom_limit = y + card_h * 0.76;
             const words = char.description.split(' ');
             let line = '';
-            let line_y = y + card_h * 0.66;
-            const line_h = desc_font + 3;
             for (const word of words) {
                 const test = line + word + ' ';
                 if (test.length > max_chars && line.length > 0) {
-                    ctx.fillText(line.trim(), x + card_w / 2, line_y);
+                    if (cursor_y > bottom_limit) break;
+                    ctx.fillText(line.trim(), x + card_w / 2, cursor_y);
                     line = word + ' ';
-                    line_y += line_h;
+                    cursor_y += line_h;
                 } else {
                     line = test;
                 }
             }
-            if (line.trim()) ctx.fillText(line.trim(), x + card_w / 2, line_y);
+            if (line.trim() && cursor_y <= bottom_limit) {
+                ctx.fillText(line.trim(), x + card_w / 2, cursor_y);
+            }
 
             // Divider before passive
             ctx.strokeStyle = sel ? '#444' : '#333';
             ctx.lineWidth = 1;
             ctx.beginPath();
-            ctx.moveTo(x + card_w * 0.15, y + card_h * 0.8);
-            ctx.lineTo(x + card_w * 0.85, y + card_h * 0.8);
+            ctx.moveTo(x + card_w * 0.15, y + card_h * 0.80);
+            ctx.lineTo(x + card_w * 0.85, y + card_h * 0.80);
             ctx.stroke();
 
             // Passive buff
             ctx.fillStyle = sel ? '#44ff44' : '#227722';
             ctx.font = `bold ${desc_font}px monospace`;
-            ctx.fillText(char.passive_name, x + card_w / 2, y + card_h * 0.86);
+            ctx.fillText(char.passive_name, x + card_w / 2, y + card_h * 0.85);
             ctx.fillStyle = sel ? '#88dd88' : '#446644';
             ctx.font = `${desc_font}px monospace`;
             const p_words = char.passive_desc.split(' ');
             let p_line = '';
-            let p_line_y = y + card_h * 0.92;
+            let p_cursor = y + card_h * 0.91;
             for (const word of p_words) {
                 const test = p_line + word + ' ';
                 if (test.length > max_chars && p_line.length > 0) {
-                    ctx.fillText(p_line.trim(), x + card_w / 2, p_line_y);
+                    if (p_cursor > y + card_h - line_h) break;
+                    ctx.fillText(p_line.trim(), x + card_w / 2, p_cursor);
                     p_line = word + ' ';
-                    p_line_y += line_h;
+                    p_cursor += line_h;
                 } else {
                     p_line = test;
                 }
             }
-            if (p_line.trim()) ctx.fillText(p_line.trim(), x + card_w / 2, p_line_y);
+            if (p_line.trim() && p_cursor <= y + card_h - 2) {
+                ctx.fillText(p_line.trim(), x + card_w / 2, p_cursor);
+            }
+
+            // Restore clip
+            ctx.restore();
         }
 
         // Instructions
@@ -1605,8 +1644,7 @@ export class BattleRoyaleApp {
         ctx.font = `${Math.max(10, Math.floor(size * 0.018))}px monospace`;
         ctx.textAlign = 'center';
         if (this.is_mobile) {
-            ctx.fillText('Tap a character to play', size / 2, size * 0.84);
-            ctx.fillText('Use d-pad to move in-game', size / 2, size * 0.89);
+            ctx.fillText('Tap a character to play', size / 2, size * 0.90);
         } else {
             ctx.fillText('\u2190 \u2192 to select, Space to start', size / 2, size * 0.84);
             ctx.fillText('WASD / Arrows to move in-game', size / 2, size * 0.89);
@@ -1616,7 +1654,7 @@ export class BattleRoyaleApp {
         if (this.survivors_high_score > 0) {
             ctx.fillStyle = '#555';
             ctx.font = `${Math.max(10, Math.floor(size * 0.016))}px monospace`;
-            ctx.fillText(`Best survival: ${Math.floor(this.survivors_high_score / 60)}:${(this.survivors_high_score % 60).toString().padStart(2, '0')}`, size / 2, size * 0.96);
+            ctx.fillText(`Best survival: ${Math.floor(this.survivors_high_score / 60)}:${(this.survivors_high_score % 60).toString().padStart(2, '0')}`, size / 2, size * 0.95);
         }
     }
 
@@ -1819,25 +1857,31 @@ export class BattleRoyaleApp {
         this.camera.apply_transform(ctx);
 
         this._perf_time('arena+food', () => {
+            ctx.save();
             this.survivors_renderer.render_arena_border(ctx, VS_ARENA_SIZE, cell);
             this.survivors_renderer.render_food(ctx, this.arena.food, cell, this.camera);
             this.survivors_renderer.render_hearts(ctx, this.enemy_manager.heart_drops, cell, this.camera);
+            ctx.restore();
         });
 
         if (this.chest_lottery) {
-            this._perf_time('chests', () => this.chest_lottery.render_chests(ctx, cell, this.camera));
+            this._perf_time('chests', () => { ctx.save(); this.chest_lottery.render_chests(ctx, cell, this.camera); ctx.restore(); });
         }
 
         this._perf_time('pools+wells', () => {
+            ctx.save();
             if (this.poison_mortar) this.poison_mortar.render_pools(ctx, cell);
             if (this.singularity_mortar) this.singularity_mortar.render_wells(ctx, cell);
+            ctx.restore();
         });
 
         this._perf_time('nests+pits', () => {
+            ctx.save();
             if (this.snake_nest) this.snake_nest.render_nests(ctx, cell);
             if (this.hydra_brood) this.hydra_brood.render_nests(ctx, cell);
             if (this.cobra_pit) this.cobra_pit.render_pits(ctx, cell);
             if (this.ancient_brood_pit) this.ancient_brood_pit.render_pits(ctx, cell);
+            ctx.restore();
         });
 
         const cox = this.camera.half_view_x - this.camera.x;
@@ -1886,36 +1930,46 @@ export class BattleRoyaleApp {
         });
 
         this._perf_time('projectiles', () => {
+            ctx.save();
             if (this.poison_mortar) this.poison_mortar.render_projectiles(ctx, cell);
             if (this.singularity_mortar) this.singularity_mortar.render_projectiles(ctx, cell);
             if (this.snake_nest) { this.snake_nest.render_projectiles(ctx, cell); this.snake_nest.render_mini_snakes(ctx, cell); }
             if (this.hydra_brood) { this.hydra_brood.render_projectiles(ctx, cell); this.hydra_brood.render_snakes(ctx, cell); }
+            ctx.restore();
         });
 
         this._perf_time('fangs', () => {
+            ctx.save();
             if (this.fang_barrage) this.fang_barrage.render(ctx, cell);
             if (this.serpent_gatling) this.serpent_gatling.render(ctx, cell);
             if (this.ricochet_fang) this.ricochet_fang.render(ctx, cell);
             if (this.shatter_fang) this.shatter_fang.render(ctx, cell);
             if (this.ouroboros) this.ouroboros.render_tracking(ctx, cell);
+            ctx.restore();
         });
 
         this._perf_time('cobras', () => {
+            ctx.save();
             if (this.cobra_pit) { this.cobra_pit.render_cobras(ctx, cell); this.cobra_pit.render_spits(ctx, cell); this.cobra_pit.render_projectiles(ctx, cell); }
             if (this.ancient_brood_pit) { this.ancient_brood_pit.render_cobras(ctx, cell); this.ancient_brood_pit.render_spits(ctx, cell); this.ancient_brood_pit.render_projectiles(ctx, cell); }
+            ctx.restore();
         });
 
         this._perf_time('beams', () => {
+            ctx.save();
             if (this.sidewinder_beam) this.sidewinder_beam.render_with_head(ctx, cell, interp_hx, interp_hy);
             if (this.consumption_beam) this.consumption_beam.render_with_head(ctx, cell, interp_hx, interp_hy);
             if (this.tongue_lash) this.tongue_lash.render(ctx, cell);
             if (this.serpents_reckoning) this.serpents_reckoning.render_with_head(ctx, cell, interp_hx, interp_hy);
+            ctx.restore();
         });
 
         this._perf_time('nova+miasma', () => {
+            ctx.save();
             if (this.venom_nova) this.venom_nova.render(ctx, cell);
             if (this.miasma) this.miasma.render(ctx, cell, interp_hx, interp_hy);
             if (this.ouroboros) this.ouroboros.render(ctx, cell, interp_hx, interp_hy);
+            ctx.restore();
         });
 
         this._perf_time('particles', () => this.particles.render(ctx));
@@ -1940,7 +1994,8 @@ export class BattleRoyaleApp {
                 hctx, this.player_snake, this.enemy_manager.enemies,
                 VS_ARENA_SIZE, w, h,
                 this.chest_lottery ? this.chest_lottery.chests : null,
-                this.grey_snake
+                this.grey_snake,
+                this.is_mobile
             ));
         }
 

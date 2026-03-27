@@ -78,8 +78,8 @@ canvas {
 /* Mobile Pause Button */
 #mobile-pause {
     position: fixed;
-    top: 10px;
-    right: 10px;
+    bottom: 20px;
+    right: 20px;
     z-index: 1000;
     display: none;
     background: rgba(255, 255, 255, 0.15);
@@ -97,4 +97,6 @@ canvas {
     align-items: center;
     justify-content: center;
     padding: 0;
+    line-height: 44px;
+    text-align: center;
 }

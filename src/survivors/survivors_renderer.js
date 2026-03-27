@@ -6,6 +6,7 @@ export class SurvivorsRenderer {
     }
 
     render_enemies(ctx, enemies, cell_size, camera) {
+        ctx.save();
         const now = performance.now();
         const seg_size = Math.ceil(cell_size * 0.55);
         const half = seg_size / 2;
@@ -103,9 +104,11 @@ export class SurvivorsRenderer {
                 ctx.fillRect(bar_x, bar_y, bar_w * hp_ratio, bar_h);
             }
         }
+        ctx.restore();
     }
 
     render_bullets(ctx, bullets, cell_size, camera) {
+        ctx.save();
         const bounds = camera ? camera.get_visible_bounds(3) : null;
 
         // --- Batch all bullet trails first (before per-bullet translate/rotate) ---
@@ -189,6 +192,7 @@ export class SurvivorsRenderer {
 
             ctx.restore();
         }
+        ctx.restore();
     }
 
     render_food(ctx, food, cell_size, camera) {
@@ -379,11 +383,11 @@ export class SurvivorsRenderer {
         ctx.restore();
     }
 
-    render_minimap(ctx, player_snake, enemies, arena_size, view_width, view_height, chests, grey_snake) {
-        const map_size = 220;
+    render_minimap(ctx, player_snake, enemies, arena_size, view_width, view_height, chests, grey_snake, mobile) {
+        const map_size = mobile ? 120 : 220;
         const padding = 10;
         const mx = view_width - map_size - padding;
-        const my = view_height - map_size - padding;
+        const my = mobile ? padding : view_height - map_size - padding;
         const scale = map_size / arena_size;
 
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
