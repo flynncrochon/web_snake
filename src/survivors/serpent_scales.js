@@ -152,8 +152,8 @@ export class SerpentScales {
             }
         };
 
-        // Pass 1: draw expanded snake shape in blue
-        oc.fillStyle = `rgba(80, 180, 255, ${alpha})`;
+        // Pass 1: draw expanded snake shape in opaque blue
+        oc.fillStyle = 'rgb(80, 180, 255)';
         draw_body(outline);
 
         // Pass 2: cut out the interior, leaving only the outer border
@@ -162,10 +162,12 @@ export class SerpentScales {
         draw_body(0);
         oc.globalCompositeOperation = 'source-over';
 
-        // Composite onto main canvas
+        // Composite onto main canvas with pulsing alpha
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = alpha;
         ctx.drawImage(this._oc, 0, 0);
+        ctx.globalAlpha = 1;
         ctx.restore();
     }
 

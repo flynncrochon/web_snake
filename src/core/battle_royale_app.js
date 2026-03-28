@@ -365,6 +365,17 @@ export class BattleRoyaleApp {
                     const size = this.renderer.logical_size;
                     const tx = data.x * size;
                     const ty = data.y * size;
+
+                    // Download APK button
+                    const btn = this._apk_btn_rect;
+                    if (btn && tx >= btn.x && tx <= btn.x + btn.w && ty >= btn.y && ty <= btn.y + btn.h) {
+                        const a = document.createElement('a');
+                        a.href = 'snake-survivors.apk';
+                        a.download = 'snake-survivors.apk';
+                        a.click();
+                        return;
+                    }
+
                     const cards = this._menu_card_rects(size);
                     for (let i = 0; i < cards.length; i++) {
                         const c = cards[i];
@@ -498,7 +509,7 @@ export class BattleRoyaleApp {
                     this._perf_overlay = !this._perf_overlay;
                     return;
                 }
-                if (this.mode === 'survivors' && action === 'debug_menu') {
+                if (action === 'debug_menu') {
                     this.vs_debug_menu_active = !this.vs_debug_menu_active;
                     this.vs_debug_menu_index = 0;
                     return;
@@ -988,7 +999,8 @@ export class BattleRoyaleApp {
                 }
             }
             const hits_grey = this.grey_snake && this.grey_snake.check_collision(next_x, next_y);
-            const hits_lethal = hits_own_body || hits_grey;
+            const hits_wall = next_x < 0 || next_x >= this.arena.size || next_y < 0 || next_y >= this.arena.size;
+            const hits_lethal = hits_own_body || hits_grey || hits_wall;
 
             if (vs_immune && hits_own_body) {
                 for (const seg of snake.segments) {
@@ -1645,7 +1657,23 @@ export class BattleRoyaleApp {
         ctx.font = `${Math.max(10, Math.floor(size * 0.018))}px monospace`;
         ctx.textAlign = 'center';
         if (this.is_mobile) {
-            ctx.fillText('Tap a character to play', size / 2, size * 0.90);
+            ctx.fillText('Tap a character to play', size / 2, size * 0.87);
+
+            // Download APK button
+            const btn_font = Math.max(11, Math.floor(size * 0.022));
+            const btn_w = Math.floor(size * 0.4);
+            const btn_h = Math.floor(size * 0.05);
+            const btn_x = (size - btn_w) / 2;
+            const btn_y = Math.floor(size * 0.91);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.fillRect(btn_x, btn_y, btn_w, btn_h);
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(btn_x, btn_y, btn_w, btn_h);
+            ctx.fillStyle = '#888';
+            ctx.font = `bold ${btn_font}px monospace`;
+            ctx.fillText('\u2B07 Download APK', size / 2, btn_y + btn_h / 2);
+            this._apk_btn_rect = { x: btn_x, y: btn_y, w: btn_w, h: btn_h };
         } else {
             ctx.fillText('\u2190 \u2192 to select, Space to start', size / 2, size * 0.84);
             ctx.fillText('WASD / Arrows to move in-game', size / 2, size * 0.89);
@@ -1655,7 +1683,7 @@ export class BattleRoyaleApp {
         if (this.survivors_high_score > 0) {
             ctx.fillStyle = '#555';
             ctx.font = `${Math.max(10, Math.floor(size * 0.016))}px monospace`;
-            ctx.fillText(`Best survival: ${Math.floor(this.survivors_high_score / 60)}:${(this.survivors_high_score % 60).toString().padStart(2, '0')}`, size / 2, size * 0.95);
+            ctx.fillText(`Best survival: ${Math.floor(this.survivors_high_score / 60)}:${(this.survivors_high_score % 60).toString().padStart(2, '0')}`, size / 2, size * 0.97);
         }
     }
 
@@ -2036,13 +2064,14 @@ export class BattleRoyaleApp {
             this.render_evolution_menu(hctx, w, h);
         }
 
-        // Self-collision warning overlay
+        // Self-collision warning overlay — single flash when death is imminent
         if (this.vs_self_collision_freeze > 0) {
             const elapsed = performance.now() - this.vs_self_collision_freeze;
-            const flash = Math.sin(elapsed * 0.015) > 0;
-            if (flash) {
+            if (elapsed >= 700) {
+                const t = (elapsed - 700) / 300; // 0→1 over final 300ms
+                const alpha = 0.3 * Math.min(t, 1);
                 hctx.save();
-                hctx.globalAlpha = 0.25;
+                hctx.globalAlpha = alpha;
                 hctx.fillStyle = '#ff0000';
                 hctx.fillRect(0, 0, w, h);
                 hctx.restore();

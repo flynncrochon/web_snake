@@ -362,20 +362,23 @@ export function play_ouroboros_hit() {
     throttled('ouroboros_hit', 80, () => {
         const ac = get_ctx();
         if (ac.state === 'suspended') ac.resume();
-        const osc = make_osc(ac, 'sawtooth', 600, 0.35, 0.06);
-        osc.frequency.exponentialRampToValueAtTime(300, ac.currentTime + 0.05);
-        make_noise(ac, 0.2, 0.03);
+        make_osc(ac, 'sine', 480, 0.12, 0.06);
+        make_osc(ac, 'triangle', 720, 0.06, 0.04);
     });
 }
 
 // ---- Ouroboros ambient hum (low rotating drone, throttled heavily) ----
 
 export function play_ouroboros_hum() {
-    throttled('ouroboros_hum', 600, () => {
+    throttled('ouroboros_hum', 400, () => {
         const ac = get_ctx();
         if (ac.state === 'suspended') ac.resume();
-        const osc = make_osc(ac, 'sine', 120, 0.15, 0.4);
-        osc.frequency.exponentialRampToValueAtTime(90, ac.currentTime + 0.35);
+        // Layered soft swarm hum — airy and warm
+        const base = make_osc(ac, 'sine', 140, 0.07, 0.5);
+        base.frequency.linearRampToValueAtTime(155, ac.currentTime + 0.25);
+        base.frequency.linearRampToValueAtTime(140, ac.currentTime + 0.5);
+        make_osc(ac, 'triangle', 280, 0.03, 0.4);
+        make_osc(ac, 'sine', 420, 0.015, 0.3);
     });
 }
 
